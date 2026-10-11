@@ -10,6 +10,8 @@ public sealed record ConfirmCodeRequest(Guid DeviceId);
 
 public sealed record ConfirmCodeResponse(Guid DeviceAId, Guid DeviceBId, DateTimeOffset PairedAt);
 
+public sealed record PairingCodeStatusResponse(string Status, Guid? DeviceAId, Guid? DeviceBId, DateTimeOffset? PairedAt);
+
 public static class PairingEndpoints
 {
     public static IEndpointRouteBuilder MapPairingEndpoints(this IEndpointRouteBuilder app)
@@ -36,6 +38,23 @@ public static class PairingEndpoints
                 ConfirmPairingOutcome.NotFound => Results.NotFound(),
                 ConfirmPairingOutcome.NoLongerValid => Results.StatusCode(StatusCodes.Status410Gone),
                 ConfirmPairingOutcome.SameDevice => Results.BadRequest(),
+                _ => throw new UnreachableException(),
+            };
+        });
+
+        group.MapGet("/codigos/{codigo}", async (string codigo, PairingService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetCodeStatusAsync(codigo, cancellationToken);
+            return result.Status switch
+            {
+                PairingCodeStatus.NotFound => Results.NotFound(),
+                PairingCodeStatus.Pending => Results.Ok(new PairingCodeStatusResponse("pendente", null, null, null)),
+                PairingCodeStatus.Expired => Results.Ok(new PairingCodeStatusResponse("expirado", null, null, null)),
+                PairingCodeStatus.Confirmed => Results.Ok(new PairingCodeStatusResponse(
+                    "confirmado",
+                    result.Pairing!.DeviceAId,
+                    result.Pairing.DeviceBId,
+                    result.Pairing.PairedAt)),
                 _ => throw new UnreachableException(),
             };
         });

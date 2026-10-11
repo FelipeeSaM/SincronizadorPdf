@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necessária para escanear o QR code de Pareamento pela câmera. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="sincronizador_pdf"
         android:name="${applicationName}"

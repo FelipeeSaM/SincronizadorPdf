@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'documento_viewer_screen.dart';
+import 'pairing/pairing_screen.dart';
 
 /// Tela inicial: permite ao usuário escolher um Documento (PDF) local para
 /// visualizar.
@@ -35,15 +36,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _abrirPareamento() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const PairingScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Sincronizador PDF')),
       body: Center(
-        child: ElevatedButton.icon(
-          onPressed: _abrirDocumento,
-          icon: const Icon(Icons.folder_open),
-          label: const Text('Abrir Documento'),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton.icon(
+              onPressed: _abrirDocumento,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Abrir Documento'),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: _abrirPareamento,
+              icon: const Icon(Icons.qr_code),
+              label: const Text('Parear Dispositivo'),
+            ),
+          ],
         ),
       ),
     );

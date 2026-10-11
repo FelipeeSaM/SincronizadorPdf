@@ -106,6 +106,65 @@ public class PairingEndpointsTests
     }
 
     [Fact]
+    public async Task CodeStatus_BeforeConfirmation_IsPending()
+    {
+        using var factory = new PairingApiFactory();
+        var client = factory.CreateClient();
+
+        var generated = await GenerateCodeAsync(client, Guid.NewGuid());
+        var statusResponse = await client.GetAsync($"/pareamento/codigos/{generated.Code}");
+
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        var status = await statusResponse.Content.ReadFromJsonAsync<PairingCodeStatusResponse>();
+        Assert.Equal("pendente", status!.Status);
+    }
+
+    [Fact]
+    public async Task CodeStatus_AfterConfirmation_IsConfirmedWithBothDevices()
+    {
+        using var factory = new PairingApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var confirmingDeviceId = Guid.NewGuid();
+
+        var generated = await GenerateCodeAsync(client, originDeviceId);
+        await ConfirmCodeAsync(client, generated.Code, confirmingDeviceId);
+        var statusResponse = await client.GetAsync($"/pareamento/codigos/{generated.Code}");
+
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        var status = await statusResponse.Content.ReadFromJsonAsync<PairingCodeStatusResponse>();
+        Assert.Equal("confirmado", status!.Status);
+        Assert.Equal(originDeviceId, status.DeviceAId);
+        Assert.Equal(confirmingDeviceId, status.DeviceBId);
+    }
+
+    [Fact]
+    public async Task CodeStatus_AfterExpiry_IsExpired()
+    {
+        using var factory = new PairingApiFactory();
+        var client = factory.CreateClient();
+
+        var generated = await GenerateCodeAsync(client, Guid.NewGuid());
+        factory.TimeProvider.Advance(PairingService.CodeLifetime + TimeSpan.FromSeconds(1));
+        var statusResponse = await client.GetAsync($"/pareamento/codigos/{generated.Code}");
+
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        var status = await statusResponse.Content.ReadFromJsonAsync<PairingCodeStatusResponse>();
+        Assert.Equal("expirado", status!.Status);
+    }
+
+    [Fact]
+    public async Task CodeStatus_WithUnknownCode_ReturnsNotFound()
+    {
+        using var factory = new PairingApiFactory();
+        var client = factory.CreateClient();
+
+        var statusResponse = await client.GetAsync("/pareamento/codigos/NAOEXISTE");
+
+        Assert.Equal(HttpStatusCode.NotFound, statusResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task PairingState_PersistsAcrossBackendRestart()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"pareamento-restart-{Guid.NewGuid():N}.db");
