@@ -43,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ElevatedButton.icon(
           onPressed: _abrirDocumento,
           icon: const Icon(Icons.folder_open),
-          label: const Text('Abrir PDF'),
+          label: const Text('Abrir Documento'),
         ),
       ),
     );

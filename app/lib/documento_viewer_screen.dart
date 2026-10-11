@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 
 /// Tela de visualização local de um Documento (PDF) escolhido pelo usuário.
@@ -15,7 +16,7 @@ class DocumentoViewerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final nomeDocumento = caminhoDocumento.split(RegExp(r'[\\/]')).last;
+    final nomeDocumento = p.basename(caminhoDocumento);
 
     return Scaffold(
       appBar: AppBar(title: Text(nomeDocumento)),
