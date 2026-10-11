@@ -1,0 +1,28 @@
+id: com.felipesam.sincronizador_pdf
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+command: sincronizador_pdf
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+
+modules:
+  - name: sincronizador_pdf
+    buildsystem: simple
+    build-commands:
+      - cp -r bundle/. /app/bin/
+      - install -Dm644 com.felipesam.sincronizador_pdf.desktop /app/share/applications/com.felipesam.sincronizador_pdf.desktop
+      - install -Dm644 com.felipesam.sincronizador_pdf.png /app/share/icons/hicolor/256x256/apps/com.felipesam.sincronizador_pdf.png
+    sources:
+      - type: dir
+        path: ../build/linux/x64/release/bundle
+        dest: bundle
+      - type: file
+        path: com.felipesam.sincronizador_pdf.desktop
+      - type: file
+        path: com.felipesam.sincronizador_pdf.png

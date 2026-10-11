@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sincronizador PDF
+Comment=Visualizador de PDF com sincronização de posição de leitura e highlights
+Exec=sincronizador_pdf
+Icon=com.felipesam.sincronizador_pdf
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/pdf;
