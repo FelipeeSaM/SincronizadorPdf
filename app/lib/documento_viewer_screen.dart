@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 
+import 'biblioteca/documento_biblioteca.dart';
+
+/// Abre [documento] da Biblioteca no visualizador, empilhando a tela sobre
+/// [context].
+Future<void> abrirNoVisualizador(
+  BuildContext context,
+  DocumentoBiblioteca documento,
+) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          DocumentoViewerScreen(caminhoDocumento: documento.caminhoArquivo),
+    ),
+  );
+}
+
 /// Tela de visualização local de um Documento (PDF) escolhido pelo usuário.
 ///
 /// Renderiza o Documento em rolagem contínua por todas as páginas (não

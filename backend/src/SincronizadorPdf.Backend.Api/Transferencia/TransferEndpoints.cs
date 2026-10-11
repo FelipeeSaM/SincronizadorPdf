@@ -12,6 +12,12 @@ public static class TransferEndpoints
     {
         var group = app.MapGroup("/transferencias");
 
+        group.MapGet("", async (Guid deviceId, TransferService service, CancellationToken cancellationToken) =>
+        {
+            var hashes = await service.ListPendingAsync(deviceId, cancellationToken);
+            return Results.Ok(hashes);
+        });
+
         group.MapPost("", async (Guid originDeviceId, Guid targetDeviceId, HttpRequest request, TransferService service, CancellationToken cancellationToken) =>
         {
             var result = await service.UploadAsync(originDeviceId, targetDeviceId, request.Body, cancellationToken);

@@ -3,9 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../sync/paired_device_store.dart';
 import '../sync/pairing_client.dart';
 
-enum _EstadoTela { carregando, aguardandoConfirmacao, confirmado, expirado, erro }
+enum _EstadoTela {
+  carregando,
+  aguardandoConfirmacao,
+  confirmado,
+  expirado,
+  erro,
+}
 
 /// Tela exibida no PC: gera um código de Pareamento, mostra-o como QR code
 /// e consulta periodicamente o Backend até que o celular o escaneie e
@@ -27,6 +34,8 @@ class PairingCodeScreen extends StatefulWidget {
 }
 
 class _PairingCodeScreenState extends State<PairingCodeScreen> {
+  final _pairedDeviceStore = const PairedDeviceStore();
+
   _EstadoTela _estado = _EstadoTela.carregando;
   CodigoPareamento? _codigo;
   Timer? _timer;
@@ -47,13 +56,18 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
   Future<void> _gerarCodigo() async {
     setState(() => _estado = _EstadoTela.carregando);
     try {
-      final codigo = await widget.pairingClient.gerarCodigo(widget.dispositivoId);
+      final codigo = await widget.pairingClient.gerarCodigo(
+        widget.dispositivoId,
+      );
       if (!mounted) return;
       setState(() {
         _codigo = codigo;
         _estado = _EstadoTela.aguardandoConfirmacao;
       });
-      _timer = Timer.periodic(widget.intervaloConsulta, (_) => _consultarStatus(codigo.codigo));
+      _timer = Timer.periodic(
+        widget.intervaloConsulta,
+        (_) => _consultarStatus(codigo.codigo),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -73,6 +87,8 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
           return;
         case StatusCodigoPareamento.confirmado:
           _timer?.cancel();
+          await _pairedDeviceStore.salvar(resultado.outroDispositivoId!);
+          if (!mounted) return;
           setState(() => _estado = _EstadoTela.confirmado);
         case StatusCodigoPareamento.expirado:
           _timer?.cancel();
@@ -101,11 +117,16 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Escaneie este QR code no celular para parear os Dispositivos'),
+            const Text(
+              'Escaneie este QR code no celular para parear os Dispositivos',
+            ),
             const SizedBox(height: 24),
             QrImageView(data: codigo.codigo, size: 240),
             const SizedBox(height: 24),
-            Text(codigo.codigo, style: Theme.of(context).textTheme.headlineSmall),
+            Text(
+              codigo.codigo,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
             const SizedBox(height: 16),
             const CircularProgressIndicator(),
           ],
@@ -129,7 +150,10 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
             const SizedBox(height: 16),
             const Text('O código expirou antes de ser confirmado.'),
             const SizedBox(height: 16),
-            ElevatedButton(onPressed: _gerarCodigo, child: const Text('Gerar novo código')),
+            ElevatedButton(
+              onPressed: _gerarCodigo,
+              child: const Text('Gerar novo código'),
+            ),
           ],
         );
 
@@ -141,7 +165,10 @@ class _PairingCodeScreenState extends State<PairingCodeScreen> {
             const SizedBox(height: 16),
             Text(_mensagemErro ?? 'Ocorreu um erro inesperado.'),
             const SizedBox(height: 16),
-            ElevatedButton(onPressed: _gerarCodigo, child: const Text('Tentar novamente')),
+            ElevatedButton(
+              onPressed: _gerarCodigo,
+              child: const Text('Tentar novamente'),
+            ),
           ],
         );
     }

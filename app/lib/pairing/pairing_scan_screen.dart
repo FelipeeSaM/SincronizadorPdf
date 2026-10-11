@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../sync/paired_device_store.dart';
 import '../sync/pairing_client.dart';
 
 enum _EstadoTela { escaneando, confirmando, confirmado }
@@ -8,7 +9,11 @@ enum _EstadoTela { escaneando, confirmando, confirmado }
 /// Tela exibida no celular: usa a câmera para escanear o QR code de
 /// Pareamento exibido no PC e confirma o Pareamento junto ao Backend.
 class PairingScanScreen extends StatefulWidget {
-  const PairingScanScreen({super.key, required this.pairingClient, required this.dispositivoId});
+  const PairingScanScreen({
+    super.key,
+    required this.pairingClient,
+    required this.dispositivoId,
+  });
 
   final PairingClient pairingClient;
   final String dispositivoId;
@@ -18,6 +23,8 @@ class PairingScanScreen extends StatefulWidget {
 }
 
 class _PairingScanScreenState extends State<PairingScanScreen> {
+  final _pairedDeviceStore = const PairedDeviceStore();
+
   _EstadoTela _estado = _EstadoTela.escaneando;
   String? _mensagemErro;
   bool _processandoDeteccao = false;
@@ -36,17 +43,27 @@ class _PairingScanScreenState extends State<PairingScanScreen> {
     });
 
     try {
-      await widget.pairingClient.confirmarCodigo(codigo, widget.dispositivoId);
+      final resultado = await widget.pairingClient.confirmarCodigo(
+        codigo,
+        widget.dispositivoId,
+      );
+      await _pairedDeviceStore.salvar(resultado.outroDispositivoId);
       if (!mounted) return;
       setState(() => _estado = _EstadoTela.confirmado);
     } on CodigoPareamentoNaoEncontrado {
       _voltarParaEscanearComErro('QR code inválido. Tente escanear novamente.');
     } on CodigoPareamentoInvalido {
-      _voltarParaEscanearComErro('Este código expirou ou já foi usado. Gere um novo no PC e escaneie de novo.');
+      _voltarParaEscanearComErro(
+        'Este código expirou ou já foi usado. Gere um novo no PC e escaneie de novo.',
+      );
     } on CodigoPareamentoDoProprioDispositivo {
-      _voltarParaEscanearComErro('Este QR code foi gerado por este mesmo Dispositivo.');
+      _voltarParaEscanearComErro(
+        'Este QR code foi gerado por este mesmo Dispositivo.',
+      );
     } catch (_) {
-      _voltarParaEscanearComErro('Não foi possível confirmar o Pareamento. Verifique sua conexão e tente novamente.');
+      _voltarParaEscanearComErro(
+        'Não foi possível confirmar o Pareamento. Verifique sua conexão e tente novamente.',
+      );
     }
   }
 
@@ -79,7 +96,9 @@ class _PairingScanScreenState extends State<PairingScanScreen> {
                 padding: const EdgeInsets.all(12),
                 child: Text(
                   _mensagemErro!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
                 ),
               ),
             Expanded(child: MobileScanner(onDetect: _aoDetectar)),

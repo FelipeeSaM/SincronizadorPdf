@@ -1,14 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../sync/backend_url_store.dart';
 import '../sync/device_id_store.dart';
 import '../sync/http_pairing_client.dart';
 import 'pairing_code_screen.dart';
 import 'pairing_scan_screen.dart';
-
-const _chaveBackendUrl = 'backend_base_url';
 
 /// Tela de Pareamento: no PC (desktop), gera e exibe um QR code; no celular
 /// (Android), escaneia esse QR e confirma o Pareamento.
@@ -25,6 +23,7 @@ class PairingScreen extends StatefulWidget {
 
 class _PairingScreenState extends State<PairingScreen> {
   final _deviceIdStore = const DeviceIdStore();
+  final _backendUrlStore = const BackendUrlStore();
   final _urlController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -45,8 +44,7 @@ class _PairingScreenState extends State<PairingScreen> {
 
   Future<void> _carregarEstadoInicial() async {
     final dispositivoId = await _deviceIdStore.obterOuCriar();
-    final prefs = await SharedPreferences.getInstance();
-    final urlSalva = prefs.getString(_chaveBackendUrl);
+    final urlSalva = await _backendUrlStore.obter();
 
     if (!mounted) return;
     setState(() {
@@ -60,8 +58,7 @@ class _PairingScreenState extends State<PairingScreen> {
   Future<void> _confirmarUrl() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_chaveBackendUrl, _urlController.text.trim());
+    await _backendUrlStore.salvar(_urlController.text.trim());
 
     if (!mounted) return;
     setState(() => _urlConfirmada = true);
@@ -89,13 +86,19 @@ class _PairingScreenState extends State<PairingScreen> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _urlController,
-                  decoration: const InputDecoration(hintText: 'https://meu-backend.exemplo.com'),
+                  decoration: const InputDecoration(
+                    hintText: 'https://meu-backend.exemplo.com',
+                  ),
                   keyboardType: TextInputType.url,
-                  validator: (valor) =>
-                      (valor == null || valor.trim().isEmpty) ? 'Informe o endereço do Backend' : null,
+                  validator: (valor) => (valor == null || valor.trim().isEmpty)
+                      ? 'Informe o endereço do Backend'
+                      : null,
                 ),
                 const SizedBox(height: 16),
-                ElevatedButton(onPressed: _confirmarUrl, child: const Text('Continuar')),
+                ElevatedButton(
+                  onPressed: _confirmarUrl,
+                  child: const Text('Continuar'),
+                ),
               ],
             ),
           ),
@@ -103,11 +106,19 @@ class _PairingScreenState extends State<PairingScreen> {
       );
     }
 
-    final pairingClient = HttpPairingClient(baseUrl: _urlController.text.trim());
+    final pairingClient = HttpPairingClient(
+      baseUrl: _urlController.text.trim(),
+    );
     final ehDispositivoMovel = Platform.isAndroid || Platform.isIOS;
 
     return ehDispositivoMovel
-        ? PairingScanScreen(pairingClient: pairingClient, dispositivoId: dispositivoId)
-        : PairingCodeScreen(pairingClient: pairingClient, dispositivoId: dispositivoId);
+        ? PairingScanScreen(
+            pairingClient: pairingClient,
+            dispositivoId: dispositivoId,
+          )
+        : PairingCodeScreen(
+            pairingClient: pairingClient,
+            dispositivoId: dispositivoId,
+          );
   }
 }

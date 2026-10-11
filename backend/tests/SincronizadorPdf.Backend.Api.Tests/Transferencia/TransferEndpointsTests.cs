@@ -35,6 +35,9 @@ public class TransferEndpointsTests
         return body!.Hash;
     }
 
+    private static Task<HttpResponseMessage> ListPendingAsync(HttpClient client, Guid deviceId) =>
+        client.GetAsync($"/transferencias?deviceId={deviceId}");
+
     private static Task<HttpResponseMessage> DownloadAsync(HttpClient client, string hash, Guid deviceId) =>
         client.GetAsync($"/transferencias/{hash}?deviceId={deviceId}");
 
@@ -206,6 +209,57 @@ public class TransferEndpointsTests
         var db = scope.ServiceProvider.GetRequiredService<TransferDbContext>();
         var count = await db.PendingTransfers.CountAsync(p => p.Hash == firstHash);
         Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task ListPending_ReturnsHashesAddressedToDevice()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-pendente"u8.ToArray());
+
+        var response = await ListPendingAsync(client, targetDeviceId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var hashes = await response.Content.ReadFromJsonAsync<List<string>>();
+        Assert.Equal([hash], hashes);
+    }
+
+    [Fact]
+    public async Task ListPending_DoesNotIncludeTransfersForOtherDevices()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-de-outro-dispositivo"u8.ToArray());
+
+        var response = await ListPendingAsync(client, Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var hashes = await response.Content.ReadFromJsonAsync<List<string>>();
+        Assert.Empty(hashes!);
+    }
+
+    [Fact]
+    public async Task ListPending_AfterConfirmation_NoLongerIncludesHash()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-confirmado"u8.ToArray());
+        await ConfirmAsync(client, hash, targetDeviceId);
+
+        var response = await ListPendingAsync(client, targetDeviceId);
+
+        var hashes = await response.Content.ReadFromJsonAsync<List<string>>();
+        Assert.Empty(hashes!);
     }
 
     [Fact]

@@ -66,6 +66,12 @@ public sealed class TransferService(TransferDbContext db, PairingService pairing
         return UploadTransferResult.Success(hash);
     }
 
+    public async Task<IReadOnlyList<string>> ListPendingAsync(Guid targetDeviceId, CancellationToken cancellationToken) =>
+        await db.PendingTransfers
+            .Where(p => p.TargetDeviceId == targetDeviceId)
+            .Select(p => p.Hash)
+            .ToListAsync(cancellationToken);
+
     public async Task<byte[]?> DownloadAsync(string hash, Guid requestingDeviceId, CancellationToken cancellationToken)
     {
         var transfer = await db.PendingTransfers.SingleOrDefaultAsync(
