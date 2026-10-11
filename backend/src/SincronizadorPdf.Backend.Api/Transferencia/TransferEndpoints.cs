@@ -12,12 +12,15 @@ public static class TransferEndpoints
     {
         var group = app.MapGroup("/transferencias");
 
-        group.MapPost("", async (Guid deviceId, HttpRequest request, TransferService service, CancellationToken cancellationToken) =>
+        group.MapPost("", async (Guid originDeviceId, Guid targetDeviceId, HttpRequest request, TransferService service, CancellationToken cancellationToken) =>
         {
-            using var buffer = new MemoryStream();
-            await request.Body.CopyToAsync(buffer, cancellationToken);
-            var hash = await service.UploadAsync(deviceId, buffer.ToArray(), cancellationToken);
-            return Results.Created($"/transferencias/{hash}", new UploadTransferResponse(hash));
+            var result = await service.UploadAsync(originDeviceId, targetDeviceId, request.Body, cancellationToken);
+            return result.Outcome switch
+            {
+                UploadTransferOutcome.Success => Results.Created($"/transferencias/{result.Hash}", new UploadTransferResponse(result.Hash!)),
+                UploadTransferOutcome.NotPaired => Results.StatusCode(StatusCodes.Status403Forbidden),
+                _ => throw new UnreachableException(),
+            };
         });
 
         group.MapGet("/{hash}", async (string hash, Guid deviceId, TransferService service, CancellationToken cancellationToken) =>

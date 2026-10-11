@@ -12,11 +12,14 @@ public sealed class TransferApiFactory(string? ownedDatabasePath = null) : WebAp
 
     public string DatabasePath { get; } = ownedDatabasePath ?? Path.Combine(Path.GetTempPath(), $"transferencia-tests-{Guid.NewGuid():N}.db");
 
+    public string PairingDatabasePath { get; } = Path.Combine(Path.GetTempPath(), $"transferencia-tests-pareamento-{Guid.NewGuid():N}.db");
+
     public FakeTimeProvider TimeProvider { get; } = new(DateTimeOffset.UtcNow);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Transferencia", $"Data Source={DatabasePath}");
+        builder.UseSetting("ConnectionStrings:Pairing", $"Data Source={PairingDatabasePath}");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -27,9 +30,13 @@ public sealed class TransferApiFactory(string? ownedDatabasePath = null) : WebAp
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && _ownsDatabaseFile)
+        if (disposing)
         {
-            File.Delete(DatabasePath);
+            File.Delete(PairingDatabasePath);
+            if (_ownsDatabaseFile)
+            {
+                File.Delete(DatabasePath);
+            }
         }
     }
 }

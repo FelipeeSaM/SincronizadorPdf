@@ -104,6 +104,12 @@ public sealed class PairingService(PairingDbContext db, TimeProvider timeProvide
         return ConfirmPairingResult.Success(pairing);
     }
 
+    public Task<bool> AreDevicesPairedAsync(Guid firstDeviceId, Guid secondDeviceId, CancellationToken cancellationToken) =>
+        db.DevicePairings.AnyAsync(
+            p => (p.DeviceAId == firstDeviceId && p.DeviceBId == secondDeviceId)
+                || (p.DeviceAId == secondDeviceId && p.DeviceBId == firstDeviceId),
+            cancellationToken);
+
     public async Task<PairingCodeStatusResult> GetCodeStatusAsync(string rawCode, CancellationToken cancellationToken)
     {
         var normalizedCode = rawCode.Trim().ToUpperInvariant();

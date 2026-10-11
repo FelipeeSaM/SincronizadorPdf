@@ -3,15 +3,33 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using SincronizadorPdf.Backend.Api.Pareamento;
 using SincronizadorPdf.Backend.Api.Transferencia;
 
 namespace SincronizadorPdf.Backend.Api.Tests.Transferencia;
 
 public class TransferEndpointsTests
 {
-    private static async Task<string> UploadAsync(HttpClient client, Guid targetDeviceId, byte[] content)
+    private static async Task PairDevicesAsync(TransferApiFactory factory, Guid deviceAId, Guid deviceBId)
     {
-        var response = await client.PostAsync($"/transferencias?deviceId={targetDeviceId}", new ByteArrayContent(content));
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PairingDbContext>();
+        db.DevicePairings.Add(new DevicePairing
+        {
+            Id = Guid.NewGuid(),
+            DeviceAId = deviceAId,
+            DeviceBId = deviceBId,
+            PairedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private static Task<HttpResponseMessage> UploadRawAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content) =>
+        client.PostAsync($"/transferencias?originDeviceId={originDeviceId}&targetDeviceId={targetDeviceId}", new ByteArrayContent(content));
+
+    private static async Task<string> UploadAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content)
+    {
+        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, content);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<UploadTransferResponse>();
         return body!.Hash;
@@ -24,14 +42,17 @@ public class TransferEndpointsTests
         client.PostAsJsonAsync($"/transferencias/{hash}/confirmacoes", new ConfirmReceiptRequest(deviceId));
 
     [Fact]
-    public async Task Upload_ReturnsContentHash()
+    public async Task Upload_BetweenPairedDevices_ReturnsContentHash()
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
         var content = "documento-pdf-bytes"u8.ToArray();
         var expectedHash = Convert.ToHexStringLower(SHA256.HashData(content));
 
-        var response = await client.PostAsync($"/transferencias?deviceId={Guid.NewGuid()}", new ByteArrayContent(content));
+        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, content);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<UploadTransferResponse>();
@@ -39,14 +60,43 @@ public class TransferEndpointsTests
     }
 
     [Fact]
+    public async Task Upload_WithPairingInReverseDirection_Succeeds()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, targetDeviceId, originDeviceId);
+
+        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, "conteudo-pareado-ao-contrario"u8.ToArray());
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Upload_BetweenUnpairedDevices_ReturnsForbidden()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+
+        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, "conteudo-sem-pareamento"u8.ToArray());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task FullCycle_UploadDownloadConfirm_DiscardsBytesAfterConfirmation()
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
         var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
         var content = "ciclo-completo-de-transferencia"u8.ToArray();
 
-        var hash = await UploadAsync(client, targetDeviceId, content);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, content);
 
         var downloadResponse = await DownloadAsync(client, hash, targetDeviceId);
         Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
@@ -64,8 +114,10 @@ public class TransferEndpointsTests
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
         var targetDeviceId = Guid.NewGuid();
-        var hash = await UploadAsync(client, targetDeviceId, "conteudo"u8.ToArray());
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo"u8.ToArray());
 
         var response = await DownloadAsync(client, hash, Guid.NewGuid());
 
@@ -88,8 +140,10 @@ public class TransferEndpointsTests
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
         var targetDeviceId = Guid.NewGuid();
-        var hash = await UploadAsync(client, targetDeviceId, "conteudo-protegido"u8.ToArray());
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-protegido"u8.ToArray());
 
         var confirmResponse = await ConfirmAsync(client, hash, Guid.NewGuid());
         Assert.Equal(HttpStatusCode.NotFound, confirmResponse.StatusCode);
@@ -114,12 +168,15 @@ public class TransferEndpointsTests
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
         var firstTarget = Guid.NewGuid();
         var secondTarget = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, firstTarget);
+        await PairDevicesAsync(factory, originDeviceId, secondTarget);
         var content = "conteudo-compartilhado-entre-transferencias"u8.ToArray();
 
-        var firstHash = await UploadAsync(client, firstTarget, content);
-        var secondHash = await UploadAsync(client, secondTarget, content);
+        var firstHash = await UploadAsync(client, originDeviceId, firstTarget, content);
+        var secondHash = await UploadAsync(client, originDeviceId, secondTarget, content);
 
         Assert.Equal(firstHash, secondHash);
 
@@ -135,11 +192,13 @@ public class TransferEndpointsTests
     {
         using var factory = new TransferApiFactory();
         var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
         var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
         var content = "conteudo-reenviado"u8.ToArray();
 
-        var firstHash = await UploadAsync(client, targetDeviceId, content);
-        var secondHash = await UploadAsync(client, targetDeviceId, content);
+        var firstHash = await UploadAsync(client, originDeviceId, targetDeviceId, content);
+        var secondHash = await UploadAsync(client, originDeviceId, targetDeviceId, content);
 
         Assert.Equal(firstHash, secondHash);
 
@@ -153,6 +212,7 @@ public class TransferEndpointsTests
     public async Task TransferState_PersistsAcrossBackendRestart()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"transferencia-restart-{Guid.NewGuid():N}.db");
+        var originDeviceId = Guid.NewGuid();
         var targetDeviceId = Guid.NewGuid();
         var content = "sobrevive-ao-restart"u8.ToArray();
 
@@ -162,7 +222,8 @@ public class TransferEndpointsTests
             using (var firstRun = new TransferApiFactory(databasePath))
             {
                 var client = firstRun.CreateClient();
-                hash = await UploadAsync(client, targetDeviceId, content);
+                await PairDevicesAsync(firstRun, originDeviceId, targetDeviceId);
+                hash = await UploadAsync(client, originDeviceId, targetDeviceId, content);
             }
 
             using var secondRun = new TransferApiFactory(databasePath);
