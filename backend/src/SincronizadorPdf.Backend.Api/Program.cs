@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SincronizadorPdf.Backend.Api.Pareamento;
+using SincronizadorPdf.Backend.Api.PosicaoLeitura;
 using SincronizadorPdf.Backend.Api.Transferencia;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,17 +17,24 @@ var transferConnectionString = builder.Configuration.GetConnectionString("Transf
 builder.Services.AddDbContext<TransferDbContext>(options => options.UseSqlite(transferConnectionString));
 builder.Services.AddScoped<TransferService>();
 
+var readingPositionConnectionString = builder.Configuration.GetConnectionString("PosicaoLeitura")
+    ?? $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "posicao-leitura.db")}";
+builder.Services.AddDbContext<ReadingPositionDbContext>(options => options.UseSqlite(readingPositionConnectionString));
+builder.Services.AddScoped<ReadingPositionService>();
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
     scope.ServiceProvider.GetRequiredService<PairingDbContext>().Database.EnsureCreated();
     scope.ServiceProvider.GetRequiredService<TransferDbContext>().Database.EnsureCreated();
+    scope.ServiceProvider.GetRequiredService<ReadingPositionDbContext>().Database.EnsureCreated();
 }
 
 app.UseHttpsRedirection();
 app.MapPairingEndpoints();
 app.MapTransferEndpoints();
+app.MapReadingPositionEndpoints();
 
 app.Run();
 
