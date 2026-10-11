@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SincronizadorPdf.Backend.Api/SincronizadorPdf.Backend.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SincronizadorPdf.Backend.Api.Tests/SincronizadorPdf.Backend.Api.Tests.csproj" />
+  </Folder>
+</Solution>
