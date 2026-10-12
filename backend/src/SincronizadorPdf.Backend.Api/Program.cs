@@ -30,12 +30,15 @@ builder.Services.AddScoped<HighlightService>();
 
 var app = builder.Build();
 
+// Migrate() em vez de EnsureCreated(): aplica o schema via migrations
+// versionadas, então uma mudança de modelo nunca deixa um banco
+// existente com colunas desatualizadas (ver #17).
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider.GetRequiredService<PairingDbContext>().Database.EnsureCreated();
-    scope.ServiceProvider.GetRequiredService<TransferDbContext>().Database.EnsureCreated();
-    scope.ServiceProvider.GetRequiredService<ReadingPositionDbContext>().Database.EnsureCreated();
-    scope.ServiceProvider.GetRequiredService<HighlightDbContext>().Database.EnsureCreated();
+    scope.ServiceProvider.GetRequiredService<PairingDbContext>().Database.Migrate();
+    scope.ServiceProvider.GetRequiredService<TransferDbContext>().Database.Migrate();
+    scope.ServiceProvider.GetRequiredService<ReadingPositionDbContext>().Database.Migrate();
+    scope.ServiceProvider.GetRequiredService<HighlightDbContext>().Database.Migrate();
 }
 
 app.UseHttpsRedirection();
