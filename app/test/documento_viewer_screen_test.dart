@@ -122,4 +122,135 @@ void main() {
       expect(percentual, 0.0);
     },
   );
+
+  group('calcularIndicadorRolagem', () {
+    test('área visível no topo do Documento posiciona o indicador no topo', () {
+      final indicador = calcularIndicadorRolagem(
+        alturaTrilho: 1000,
+        alturaDocumento: 4000,
+        visivel: const Rect.fromLTWH(0, 0, 600, 1000),
+        alturaMinima: 32,
+      );
+
+      expect(indicador.topo, 0.0);
+      expect(indicador.altura, 250.0); // 1000/4000 do trilho de 1000px
+    });
+
+    test('área visível na metade do Documento centraliza o indicador', () {
+      final indicador = calcularIndicadorRolagem(
+        alturaTrilho: 1000,
+        alturaDocumento: 4000,
+        visivel: const Rect.fromLTWH(0, 1500, 600, 1000),
+        alturaMinima: 32,
+      );
+
+      expect(indicador.topo, 375.0); // 1500/4000 do trilho de 1000px
+      expect(indicador.altura, 250.0);
+    });
+
+    test('área visível no fim do Documento encosta o indicador no fim do trilho', () {
+      final indicador = calcularIndicadorRolagem(
+        alturaTrilho: 1000,
+        alturaDocumento: 4000,
+        visivel: const Rect.fromLTWH(0, 3000, 600, 1000),
+        alturaMinima: 32,
+      );
+
+      expect(indicador.topo, 750.0);
+      expect(indicador.altura, 250.0);
+    });
+
+    test(
+      'fração da área visível menor que a altura mínima não encolhe o indicador abaixo dela',
+      () {
+        final indicador = calcularIndicadorRolagem(
+          alturaTrilho: 1000,
+          alturaDocumento: 100000,
+          visivel: const Rect.fromLTWH(0, 0, 600, 1000),
+          alturaMinima: 32,
+        );
+
+        expect(indicador.altura, 32.0);
+      },
+    );
+
+    test(
+      'altura mínima do indicador não o empurra para fora do fim do trilho',
+      () {
+        final indicador = calcularIndicadorRolagem(
+          alturaTrilho: 1000,
+          alturaDocumento: 100000,
+          visivel: const Rect.fromLTWH(0, 99500, 600, 1000),
+          alturaMinima: 32,
+        );
+
+        expect(indicador.topo, 1000.0 - 32.0);
+        expect(indicador.altura, 32.0);
+      },
+    );
+
+    test('Documento sem altura (ainda carregando) não produz indicador', () {
+      final indicador = calcularIndicadorRolagem(
+        alturaTrilho: 1000,
+        alturaDocumento: 0,
+        visivel: const Rect.fromLTWH(0, 0, 600, 1000),
+        alturaMinima: 32,
+      );
+
+      expect(indicador.altura, 0.0);
+    });
+  });
+
+  group('calcularInicioArrasto', () {
+    test(
+      'tocar dentro do indicador só guarda o deslocamento, sem pedir navegação',
+      () {
+        final resultado = calcularInicioArrasto(
+          posicaoLocal: 420,
+          indicadorTopo: 400,
+          indicadorAltura: 100,
+          alturaTrilho: 1000,
+        );
+
+        expect(resultado.offsetArrasto, 20.0);
+        expect(resultado.fracaoParaNavegar, isNull);
+      },
+    );
+
+    test(
+      'tocar exatamente nas bordas do indicador ainda conta como dentro dele',
+      () {
+        final noTopo = calcularInicioArrasto(
+          posicaoLocal: 400,
+          indicadorTopo: 400,
+          indicadorAltura: 100,
+          alturaTrilho: 1000,
+        );
+        final noFim = calcularInicioArrasto(
+          posicaoLocal: 500,
+          indicadorTopo: 400,
+          indicadorAltura: 100,
+          alturaTrilho: 1000,
+        );
+
+        expect(noTopo.fracaoParaNavegar, isNull);
+        expect(noFim.fracaoParaNavegar, isNull);
+      },
+    );
+
+    test(
+      'tocar fora do indicador pede navegação imediata para a fração tocada e zera o deslocamento',
+      () {
+        final resultado = calcularInicioArrasto(
+          posicaoLocal: 750,
+          indicadorTopo: 400,
+          indicadorAltura: 100,
+          alturaTrilho: 1000,
+        );
+
+        expect(resultado.offsetArrasto, 0.0);
+        expect(resultado.fracaoParaNavegar, 0.75);
+      },
+    );
+  });
 }

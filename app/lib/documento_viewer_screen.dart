@@ -11,8 +11,19 @@ import 'sync/reading_position_sync_service.dart';
 
 const _intervaloSincronizacao = Duration(seconds: 5);
 const _debouncePosicaoLocal = Duration(milliseconds: 400);
-const _esperaFadeOutNome = Duration(seconds: 3);
-const _duracaoFadeNome = Duration(seconds: 1);
+const _esperaFadeOutControles = Duration(seconds: 3);
+const _duracaoFadeControles = Duration(seconds: 1);
+
+/// Largura do trilho da barra de rolagem lateral (ver #23).
+const _larguraBarraRolagem = 14.0;
+
+/// Altura mínima do indicador de posição dentro da barra, para que
+/// permaneça alvo de toque viável em Documentos muito longos (onde a
+/// fração correspondente à área visível seria, do contrário, minúscula).
+const _alturaMinimaIndicadorRolagem = 32.0;
+
+/// Distância do indicador até as bordas do trilho da barra de rolagem.
+const _margemIndicadorRolagem = 2.0;
 
 /// Cor de preenchimento usada para desenhar o overlay de Highlight sobre o
 /// texto selecionado (ver ADR-0001): o PDF original nunca é modificado.
@@ -51,6 +62,59 @@ double calcularPercentualRolagem({
 }) {
   if (pagina.height <= 0) return 0;
   return ((visivel.top - pagina.top) / pagina.height).clamp(0.0, 1.0);
+}
+
+/// Calcula a posição e a altura do indicador da barra de rolagem lateral
+/// (ver #23): a fração de [visivel] dentro de um Documento de altura
+/// [alturaDocumento], projetada sobre um trilho de altura [alturaTrilho].
+///
+/// A altura do indicador nunca fica abaixo de [alturaMinima] — do
+/// contrário, em Documentos muito longos, a fração da área visível seria
+/// minúscula demais para ser um alvo de toque viável.
+({double topo, double altura}) calcularIndicadorRolagem({
+  required double alturaTrilho,
+  required double alturaDocumento,
+  required Rect visivel,
+  required double alturaMinima,
+}) {
+  if (alturaDocumento <= 0 || alturaTrilho <= 0) {
+    return (topo: 0.0, altura: 0.0);
+  }
+
+  final topoFracao = (visivel.top / alturaDocumento).clamp(0.0, 1.0);
+  final alturaFracao = (visivel.height / alturaDocumento).clamp(0.0, 1.0);
+
+  final altura = (alturaFracao * alturaTrilho).clamp(alturaMinima, alturaTrilho);
+  final topo = (topoFracao * alturaTrilho).clamp(0.0, alturaTrilho - altura);
+
+  return (topo: topo, altura: altura);
+}
+
+/// Decide o efeito de um toque em [posicaoLocal] (coordenada vertical, em
+/// pixels do trilho) no início de um arrasto da barra de rolagem lateral
+/// (ver #23).
+///
+/// Se o toque cai dentro do indicador (entre [indicadorTopo] e
+/// [indicadorTopo] + [indicadorAltura]), só guarda o deslocamento até o
+/// seu topo — sem navegar ainda, do contrário o indicador saltaria para
+/// ficar com o topo embaixo do dedo no instante em que o arrasto começa.
+/// Caso contrário (toque em outro ponto do trilho), equivale a um clique
+/// de "ir para esta posição": [fracaoParaNavegar] não vem nulo, pedindo
+/// navegação imediata, e o deslocamento é zerado porque esse ponto passa
+/// a ser a nova referência.
+({double offsetArrasto, double? fracaoParaNavegar}) calcularInicioArrasto({
+  required double posicaoLocal,
+  required double indicadorTopo,
+  required double indicadorAltura,
+  required double alturaTrilho,
+}) {
+  final dentroDoIndicador =
+      posicaoLocal >= indicadorTopo &&
+      posicaoLocal <= indicadorTopo + indicadorAltura;
+  if (dentroDoIndicador) {
+    return (offsetArrasto: posicaoLocal - indicadorTopo, fracaoParaNavegar: null);
+  }
+  return (offsetArrasto: 0.0, fracaoParaNavegar: posicaoLocal / alturaTrilho);
 }
 
 /// Converte um trecho de texto selecionado [range] (ver `pdfrx`) para os
@@ -113,14 +177,26 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
 
   Timer? _timerSincronizacao;
   Timer? _debounceRolagem;
-  Timer? _timerFadeOutNome;
+  Timer? _timerFadeOutControles;
   PosicaoLeitura? _posicaoInicial;
   bool _carregandoPosicaoInicial = true;
   List<Highlight> _highlights = [];
 
-  // Nome do Documento no cabeçalho: visível ao abrir, some após
-  // `_esperaFadeOutNome` parado e volta a aparecer a cada rolagem (#21).
-  bool _nomeVisivel = true;
+  // Cabeçalho (nome do Documento) e barra de rolagem lateral: visíveis ao
+  // abrir, somem juntos após `_esperaFadeOutControles` parado e voltam a
+  // aparecer a cada rolagem ou arrasto na barra (#21, #23) — ambos
+  // disputam a mesma percepção de "espaço de leitura ocupado pela UI".
+  bool _controlesVisiveis = true;
+
+  // Só true a partir de `onViewerReady`: antes disso, `layout`,
+  // `documentSize` e `visibleRect` do controller ainda não existem.
+  bool _visualizadorPronto = false;
+
+  // Deslocamento (em pixels do trilho) entre o ponto tocado e o topo do
+  // indicador no início do arrasto — preserva esse deslocamento durante
+  // todo o gesto para o indicador não "saltar" sob o dedo quando o
+  // toque não cai exatamente no seu topo (ver #23).
+  double _offsetArrastoIndicadorRolagem = 0;
 
   // Assume em foco ao montar: a tela só é construída enquanto visível.
   // Atualizado só depois pelas transições reportadas a `didChangeAppLifecycleState`.
@@ -131,7 +207,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_aoRolar);
-    _reiniciarTimerFadeOutNome();
+    _reiniciarTimerFadeOutControles();
     unawaited(_carregarEstadoInicial());
   }
 
@@ -140,7 +216,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_aoRolar);
     _debounceRolagem?.cancel();
-    _timerFadeOutNome?.cancel();
+    _timerFadeOutControles?.cancel();
     _pararSincronizacaoPeriodica();
     _salvarPosicaoAtualLocal();
     super.dispose();
@@ -208,29 +284,29 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   }
 
   void _aoRolar() {
-    // Suspende o fade out enquanto a rolagem continuar — o nome só é
-    // trazido de volta (fade in) quando ela termina, abaixo.
-    _timerFadeOutNome?.cancel();
+    // Suspende o fade out enquanto a rolagem continuar — os controles só
+    // são trazidos de volta (fade in) quando ela termina, abaixo.
+    _timerFadeOutControles?.cancel();
     _debounceRolagem?.cancel();
     _debounceRolagem = Timer(_debouncePosicaoLocal, () {
       _salvarPosicaoAtualLocal();
-      _mostrarNomeDocumento();
-      _reiniciarTimerFadeOutNome();
+      _mostrarControles();
+      _reiniciarTimerFadeOutControles();
     });
   }
 
-  void _mostrarNomeDocumento() {
-    if (!_nomeVisivel) setState(() => _nomeVisivel = true);
+  void _mostrarControles() {
+    if (!_controlesVisiveis) setState(() => _controlesVisiveis = true);
   }
 
-  void _reiniciarTimerFadeOutNome() {
-    _timerFadeOutNome?.cancel();
-    _timerFadeOutNome = Timer(_esperaFadeOutNome, _esconderNomeDocumento);
+  void _reiniciarTimerFadeOutControles() {
+    _timerFadeOutControles?.cancel();
+    _timerFadeOutControles = Timer(_esperaFadeOutControles, _esconderControles);
   }
 
-  void _esconderNomeDocumento() {
+  void _esconderControles() {
     if (!mounted) return;
-    setState(() => _nomeVisivel = false);
+    setState(() => _controlesVisiveis = false);
   }
 
   void _salvarPosicaoAtualLocal() {
@@ -255,6 +331,8 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   }
 
   void _aoFicarPronto(PdfDocument document, PdfViewerController controller) {
+    setState(() => _visualizadorPronto = true);
+
     final posicao = _posicaoInicial;
     if (posicao == null) return;
 
@@ -263,6 +341,22 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     final y = pageLayout.top + posicao.percentualRolagem * pageLayout.height;
     unawaited(
       controller.goToPosition(documentOffset: Offset(pageLayout.left, y)),
+    );
+  }
+
+  /// Navega para a posição vertical do Documento correspondente a
+  /// [fracao] (0.0 = topo, 1.0 = fim), mantendo a rolagem horizontal
+  /// atual — usado tanto ao tocar quanto ao arrastar a barra de rolagem
+  /// lateral (ver #23).
+  void _navegarParaFracaoDoDocumento(double fracao) {
+    if (!_visualizadorPronto) return;
+
+    final alturaDocumento = _controller.documentSize.height;
+    final y = fracao.clamp(0.0, 1.0) * alturaDocumento;
+    unawaited(
+      _controller.goToPosition(
+        documentOffset: Offset(_controller.visibleRect.left, y),
+      ),
     );
   }
 
@@ -402,10 +496,10 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     left: 0,
     right: 0,
     child: IgnorePointer(
-      ignoring: !_nomeVisivel,
+      ignoring: !_controlesVisiveis,
       child: AnimatedOpacity(
-        opacity: _nomeVisivel ? 1.0 : 0.0,
-        duration: _duracaoFadeNome,
+        opacity: _controlesVisiveis ? 1.0 : 0.0,
+        duration: _duracaoFadeControles,
         child: SafeArea(
           bottom: false,
           child: AppBar(title: Text(widget.nomeDocumento)),
@@ -413,6 +507,94 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
       ),
     ),
   );
+
+  /// Barra de rolagem lateral: reflete a posição/extensão atual da área
+  /// visível dentro do Documento e permite arrastar (ou tocar em qualquer
+  /// ponto do trilho) para navegar — scrubbing, não só indicação visual
+  /// (ver #23). Some/aparece junto com o cabeçalho (`_controlesVisiveis`).
+  ///
+  /// Só é construída depois de `_visualizadorPronto`: antes disso,
+  /// `documentSize`/`visibleRect` do controller ainda não existem.
+  Widget _buildBarraRolagem() {
+    if (!_visualizadorPronto) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 0,
+      bottom: 0,
+      right: 0,
+      width: _larguraBarraRolagem,
+      child: IgnorePointer(
+        ignoring: !_controlesVisiveis,
+        child: AnimatedOpacity(
+          opacity: _controlesVisiveis ? 1.0 : 0.0,
+          duration: _duracaoFadeControles,
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, constraints) =>
+                  _buildIndicadorRolagem(constraints.maxHeight),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIndicadorRolagem(double alturaTrilho) {
+    final indicador = calcularIndicadorRolagem(
+      alturaTrilho: alturaTrilho,
+      alturaDocumento: _controller.documentSize.height,
+      visivel: _controller.visibleRect,
+      alturaMinima: _alturaMinimaIndicadorRolagem,
+    );
+    if (indicador.altura <= 0) return const SizedBox.shrink();
+
+    void iniciarArrasto(Offset posicaoLocal) {
+      final resultado = calcularInicioArrasto(
+        posicaoLocal: posicaoLocal.dy,
+        indicadorTopo: indicador.topo,
+        indicadorAltura: indicador.altura,
+        alturaTrilho: alturaTrilho,
+      );
+      _offsetArrastoIndicadorRolagem = resultado.offsetArrasto;
+      final fracao = resultado.fracaoParaNavegar;
+      if (fracao != null) _navegarParaFracaoDoDocumento(fracao);
+    }
+
+    void arrastarIndicador(Offset posicaoLocal) {
+      final novoTopo = posicaoLocal.dy - _offsetArrastoIndicadorRolagem;
+      _navegarParaFracaoDoDocumento(novoTopo / alturaTrilho);
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTapDown: (details) => iniciarArrasto(details.localPosition),
+      onVerticalDragStart: (details) => iniciarArrasto(details.localPosition),
+      onVerticalDragUpdate: (details) => arrastarIndicador(details.localPosition),
+      child: SizedBox(
+        height: alturaTrilho,
+        width: _larguraBarraRolagem,
+        child: Stack(
+          children: [
+            Positioned(
+              top: indicador.topo,
+              right: _margemIndicadorRolagem,
+              width: _larguraBarraRolagem - _margemIndicadorRolagem * 2,
+              height: indicador.altura,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(_larguraBarraRolagem / 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -447,6 +629,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
             ),
           ),
           _buildCabecalhoFlutuante(),
+          _buildBarraRolagem(),
         ],
       ),
     );
