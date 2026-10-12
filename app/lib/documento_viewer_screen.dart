@@ -391,11 +391,26 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     await highlightSyncService.apagar(hash: widget.hash, highlight: highlight);
   }
 
-  AppBar _buildAppBar() => AppBar(
-    title: AnimatedOpacity(
-      opacity: _nomeVisivel ? 1.0 : 0.0,
-      duration: _duracaoFadeNome,
-      child: Text(widget.nomeDocumento),
+  /// Cabeçalho flutuante sobreposto ao Documento (não o `appBar` do
+  /// `Scaffold`): preso a esse slot, a faixa continuaria ocupando espaço
+  /// de leitura mesmo com opacidade zero, porque o fundo do `Scaffold`
+  /// aparece por trás dela — o motivo original da #21 era justamente
+  /// devolver esse espaço. `IgnorePointer` evita que a seta de voltar
+  /// continue clicável enquanto está invisível.
+  Widget _buildCabecalhoFlutuante() => Positioned(
+    top: 0,
+    left: 0,
+    right: 0,
+    child: IgnorePointer(
+      ignoring: !_nomeVisivel,
+      child: AnimatedOpacity(
+        opacity: _nomeVisivel ? 1.0 : 0.0,
+        duration: _duracaoFadeNome,
+        child: SafeArea(
+          bottom: false,
+          child: AppBar(title: Text(widget.nomeDocumento)),
+        ),
+      ),
     ),
   );
 
@@ -403,27 +418,36 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   Widget build(BuildContext context) {
     if (_carregandoPosicaoInicial) {
       return Scaffold(
-        appBar: _buildAppBar(),
+        appBar: AppBar(title: Text(widget.nomeDocumento)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: _buildAppBar(),
-      body: PdfViewer.file(
-        widget.caminhoDocumento,
-        controller: _controller,
-        initialPageNumber: _posicaoInicial?.pagina ?? 1,
-        // PdfViewerParams sem `layoutPages` customizado usa o layout padrão
-        // do pdfrx, que empilha as páginas verticalmente formando uma única
-        // rolagem contínua por todo o Documento (não é um viewer paginado).
-        params: PdfViewerParams(
-          textSelectionParams: const PdfTextSelectionParams(enabled: true),
-          onViewerReady: _aoFicarPronto,
-          pagePaintCallbacks: [_pintarHighlights],
-          customizeContextMenuItems: _personalizarMenuContexto,
-          onGeneralTap: _aoTocarNoVisualizador,
-        ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: PdfViewer.file(
+              widget.caminhoDocumento,
+              controller: _controller,
+              initialPageNumber: _posicaoInicial?.pagina ?? 1,
+              // PdfViewerParams sem `layoutPages` customizado usa o layout
+              // padrão do pdfrx, que empilha as páginas verticalmente
+              // formando uma única rolagem contínua por todo o Documento
+              // (não é um viewer paginado).
+              params: PdfViewerParams(
+                textSelectionParams: const PdfTextSelectionParams(
+                  enabled: true,
+                ),
+                onViewerReady: _aoFicarPronto,
+                pagePaintCallbacks: [_pintarHighlights],
+                customizeContextMenuItems: _personalizarMenuContexto,
+                onGeneralTap: _aoTocarNoVisualizador,
+              ),
+            ),
+          ),
+          _buildCabecalhoFlutuante(),
+        ],
       ),
     );
   }
