@@ -31,10 +31,13 @@ class DocumentSyncService {
 
   /// Processa a abertura de um Documento local identificado por [hash].
   ///
-  /// Se o Documento já estiver na Biblioteca (mesmo hash), apenas retorna
-  /// a entrada existente, sem disparar nova Transferência. Caso contrário,
-  /// adiciona [conteudo] à Biblioteca e, se [destinoDispositivoId] for
-  /// informado (Dispositivo pareado conhecido), tenta enviá-lo.
+  /// Se o Documento já estiver na Biblioteca (mesmo hash) e já tiver sido
+  /// entregue com sucesso a [destinoDispositivoId], apenas retorna a
+  /// entrada existente, sem disparar nova Transferência. Caso contrário
+  /// (Documento novo, ou já existente mas nunca efetivamente entregue a
+  /// esse destino — ver #18), adiciona/mantém [conteudo] na Biblioteca e,
+  /// se [destinoDispositivoId] for informado (Dispositivo pareado
+  /// conhecido), tenta enviá-lo.
   Future<DocumentoBiblioteca> abrirDocumento({
     required String hash,
     required String nome,
@@ -42,20 +45,22 @@ class DocumentSyncService {
     String? destinoDispositivoId,
   }) async {
     final existente = await bibliotecaStore.obterPorHash(hash);
-    if (existente != null) return existente;
+    final documento =
+        existente ??
+        await bibliotecaStore.adicionar(
+          hash: hash,
+          nome: nome,
+          conteudo: conteudo,
+        );
 
-    final documento = await bibliotecaStore.adicionar(
-      hash: hash,
-      nome: nome,
-      conteudo: conteudo,
-    );
-
-    if (destinoDispositivoId != null) {
-      await _tentarEnviar(
+    if (destinoDispositivoId != null &&
+        !documento.enviadoPara.contains(destinoDispositivoId)) {
+      final enviado = await _tentarEnviar(
         hash: hash,
         destinoDispositivoId: destinoDispositivoId,
         conteudo: conteudo,
       );
+      if (enviado) return documento.comEnviadoPara(destinoDispositivoId);
     }
 
     return documento;
@@ -69,7 +74,9 @@ class DocumentSyncService {
     await _receberPendentes();
   }
 
-  Future<void> _tentarEnviar({
+  /// Retorna `true` se o envio foi confirmado pelo Backend (e, nesse caso,
+  /// já persistido via [BibliotecaStore.marcarEnviadoPara]).
+  Future<bool> _tentarEnviar({
     required String hash,
     required String destinoDispositivoId,
     required Uint8List conteudo,
@@ -80,9 +87,26 @@ class DocumentSyncService {
         destinoDispositivoId: destinoDispositivoId,
         conteudo: conteudo,
       );
+      await bibliotecaStore.marcarEnviadoPara(
+        hash: hash,
+        destinoDispositivoId: destinoDispositivoId,
+      );
+      // Essa entrega pode ter tido sucesso numa tentativa disparada fora da
+      // Fila Local (ex.: reabertura do Documento) enquanto um pedido para o
+      // mesmo (hash, destino) ainda estava retido lá de uma falha anterior:
+      // remove para não reenviar de novo em sincronizar.
+      await filaTransferencia.remover(
+        PedidoTransferenciaPendente(
+          hash: hash,
+          destinoDispositivoId: destinoDispositivoId,
+          criadoEm: DateTime.now(),
+        ),
+      );
+      return true;
     } on ErroEnvioTransferencia {
       // Erro de domínio (ex.: Dispositivos não pareados): reenviar não vai
       // resolver, então não retém na Fila Local de Sincronização.
+      return false;
     } catch (_) {
       await filaTransferencia.enfileirar(
         PedidoTransferenciaPendente(
@@ -91,6 +115,7 @@ class DocumentSyncService {
           criadoEm: DateTime.now(),
         ),
       );
+      return false;
     }
   }
 
@@ -109,6 +134,10 @@ class DocumentSyncService {
           origemDispositivoId: dispositivoId,
           destinoDispositivoId: pedido.destinoDispositivoId,
           conteudo: conteudo,
+        );
+        await bibliotecaStore.marcarEnviadoPara(
+          hash: pedido.hash,
+          destinoDispositivoId: pedido.destinoDispositivoId,
         );
         await filaTransferencia.remover(pedido);
       } on ErroEnvioTransferencia {

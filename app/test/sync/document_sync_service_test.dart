@@ -109,6 +109,85 @@ void main() {
   );
 
   test(
+    'abrirDocumento retorna o Documento já com o destino marcado como enviado',
+    () async {
+      final conteudo = Uint8List.fromList('documento-retorno'.codeUnits);
+
+      final documento = await service.abrirDocumento(
+        hash: hashDe(conteudo),
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+
+      expect(documento.enviadoPara, contains(destinoId));
+    },
+  );
+
+  test(
+    'reabrir um Documento ainda retido na Fila Local (Backend volta no meio tempo) '
+    'envia e não deixa pedido duplicado para o reenvio automático',
+    () async {
+      transferClient.indisponivel = true;
+      final conteudo = Uint8List.fromList(
+        'documento-fila-depois-reaberto'.codeUnits,
+      );
+      final hash = hashDe(conteudo);
+
+      await service.abrirDocumento(
+        hash: hash,
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+      expect((await fila.listar()).map((p) => p.hash), [hash]);
+
+      transferClient.indisponivel = false;
+      await service.abrirDocumento(
+        hash: hash,
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+      expect(transferClient.enviosRecebidos, [hash]);
+      expect(await fila.listar(), isEmpty);
+
+      await service.sincronizar();
+
+      expect(transferClient.enviosRecebidos, [hash]);
+    },
+  );
+
+  test(
+    'reabrir um Documento que nunca foi entregue ao destino tenta enviar de novo',
+    () async {
+      transferClient.naoPareado = true;
+      final conteudo = Uint8List.fromList(
+        'documento-nunca-entregue'.codeUnits,
+      );
+      final hash = hashDe(conteudo);
+
+      await service.abrirDocumento(
+        hash: hash,
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+      expect(transferClient.enviosRecebidos, isEmpty);
+
+      transferClient.naoPareado = false;
+      await service.abrirDocumento(
+        hash: hash,
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+
+      expect(transferClient.enviosRecebidos, [hash]);
+    },
+  );
+
+  test(
     'envio rejeitado por falta de Pareamento não é retido na Fila Local (não adianta reenviar)',
     () async {
       transferClient.naoPareado = true;

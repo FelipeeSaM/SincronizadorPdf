@@ -90,4 +90,23 @@ class BibliotecaStore {
 
   Future<Uint8List> lerBytes(DocumentoBiblioteca documento) =>
       File(documento.caminhoArquivo).readAsBytes();
+
+  /// Registra que o Documento [hash] foi entregue com sucesso ao Backend
+  /// com destino a [destinoDispositivoId], para que reabri-lo não dispare
+  /// uma nova tentativa de envio (ver #18). Não tem efeito se [hash] não
+  /// estiver na Biblioteca.
+  Future<void> marcarEnviadoPara({
+    required String hash,
+    required String destinoDispositivoId,
+  }) async {
+    final documentos = await listar();
+    final indice = documentos.indexWhere((d) => d.hash == hash);
+    if (indice == -1) return;
+
+    final documento = documentos[indice];
+    if (documento.enviadoPara.contains(destinoDispositivoId)) return;
+
+    documentos[indice] = documento.comEnviadoPara(destinoDispositivoId);
+    await _salvarIndice(documentos);
+  }
 }
