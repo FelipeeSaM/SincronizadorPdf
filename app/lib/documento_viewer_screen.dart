@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -11,8 +12,8 @@ import 'sync/reading_position_sync_service.dart';
 
 const _intervaloSincronizacao = Duration(seconds: 5);
 const _debouncePosicaoLocal = Duration(milliseconds: 400);
-const _esperaFadeOutControles = Duration(seconds: 3);
-const _duracaoFadeControles = Duration(seconds: 1);
+const _esperaFadeOutNome = Duration(seconds: 3);
+const _duracaoFadeNome = Duration(seconds: 1);
 
 /// Largura do trilho da barra de rolagem lateral (ver #23).
 const _larguraBarraRolagem = 14.0;
@@ -177,20 +178,24 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
 
   Timer? _timerSincronizacao;
   Timer? _debounceRolagem;
-  Timer? _timerFadeOutControles;
+  Timer? _timerFadeOutNome;
   PosicaoLeitura? _posicaoInicial;
   bool _carregandoPosicaoInicial = true;
   List<Highlight> _highlights = [];
 
-  // Cabeçalho (nome do Documento) e barra de rolagem lateral: visíveis ao
-  // abrir, somem juntos após `_esperaFadeOutControles` parado e voltam a
-  // aparecer a cada rolagem ou arrasto na barra (#21, #23) — ambos
-  // disputam a mesma percepção de "espaço de leitura ocupado pela UI".
-  bool _controlesVisiveis = true;
+  // Nome do Documento no cabeçalho: visível ao abrir, some após
+  // `_esperaFadeOutNome` parado e volta a aparecer a cada rolagem (#21).
+  bool _nomeVisivel = true;
 
   // Só true a partir de `onViewerReady`: antes disso, `layout`,
   // `documentSize` e `visibleRect` do controller ainda não existem.
   bool _visualizadorPronto = false;
+
+  // A barra de rolagem lateral (#23) só aparece no PC: no celular, o
+  // gesto direto de rolagem já é suficiente e a barra ocuparia espaço de
+  // tela sem necessidade. Quando exibida, fica sempre visível, sem o
+  // fade do cabeçalho — não compete pelo mesmo espaço de leitura.
+  final bool _exibirBarraRolagem = !(Platform.isAndroid || Platform.isIOS);
 
   // Deslocamento (em pixels do trilho) entre o ponto tocado e o topo do
   // indicador no início do arrasto — preserva esse deslocamento durante
@@ -207,7 +212,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_aoRolar);
-    _reiniciarTimerFadeOutControles();
+    _reiniciarTimerFadeOutNome();
     unawaited(_carregarEstadoInicial());
   }
 
@@ -216,7 +221,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_aoRolar);
     _debounceRolagem?.cancel();
-    _timerFadeOutControles?.cancel();
+    _timerFadeOutNome?.cancel();
     _pararSincronizacaoPeriodica();
     _salvarPosicaoAtualLocal();
     super.dispose();
@@ -284,29 +289,29 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   }
 
   void _aoRolar() {
-    // Suspende o fade out enquanto a rolagem continuar — os controles só
-    // são trazidos de volta (fade in) quando ela termina, abaixo.
-    _timerFadeOutControles?.cancel();
+    // Suspende o fade out enquanto a rolagem continuar — o nome só é
+    // trazido de volta (fade in) quando ela termina, abaixo.
+    _timerFadeOutNome?.cancel();
     _debounceRolagem?.cancel();
     _debounceRolagem = Timer(_debouncePosicaoLocal, () {
       _salvarPosicaoAtualLocal();
-      _mostrarControles();
-      _reiniciarTimerFadeOutControles();
+      _mostrarNomeDocumento();
+      _reiniciarTimerFadeOutNome();
     });
   }
 
-  void _mostrarControles() {
-    if (!_controlesVisiveis) setState(() => _controlesVisiveis = true);
+  void _mostrarNomeDocumento() {
+    if (!_nomeVisivel) setState(() => _nomeVisivel = true);
   }
 
-  void _reiniciarTimerFadeOutControles() {
-    _timerFadeOutControles?.cancel();
-    _timerFadeOutControles = Timer(_esperaFadeOutControles, _esconderControles);
+  void _reiniciarTimerFadeOutNome() {
+    _timerFadeOutNome?.cancel();
+    _timerFadeOutNome = Timer(_esperaFadeOutNome, _esconderNomeDocumento);
   }
 
-  void _esconderControles() {
+  void _esconderNomeDocumento() {
     if (!mounted) return;
-    setState(() => _controlesVisiveis = false);
+    setState(() => _nomeVisivel = false);
   }
 
   void _salvarPosicaoAtualLocal() {
@@ -496,10 +501,10 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     left: 0,
     right: 0,
     child: IgnorePointer(
-      ignoring: !_controlesVisiveis,
+      ignoring: !_nomeVisivel,
       child: AnimatedOpacity(
-        opacity: _controlesVisiveis ? 1.0 : 0.0,
-        duration: _duracaoFadeControles,
+        opacity: _nomeVisivel ? 1.0 : 0.0,
+        duration: _duracaoFadeNome,
         child: SafeArea(
           bottom: false,
           child: AppBar(title: Text(widget.nomeDocumento)),
@@ -511,30 +516,26 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   /// Barra de rolagem lateral: reflete a posição/extensão atual da área
   /// visível dentro do Documento e permite arrastar (ou tocar em qualquer
   /// ponto do trilho) para navegar — scrubbing, não só indicação visual
-  /// (ver #23). Some/aparece junto com o cabeçalho (`_controlesVisiveis`).
+  /// (ver #23). Só no PC (`_exibirBarraRolagem`) e sempre visível ali,
+  /// sem o fade do cabeçalho.
   ///
   /// Só é construída depois de `_visualizadorPronto`: antes disso,
   /// `documentSize`/`visibleRect` do controller ainda não existem.
   Widget _buildBarraRolagem() {
-    if (!_visualizadorPronto) return const SizedBox.shrink();
+    if (!_exibirBarraRolagem || !_visualizadorPronto) {
+      return const SizedBox.shrink();
+    }
 
     return Positioned(
       top: 0,
       bottom: 0,
       right: 0,
       width: _larguraBarraRolagem,
-      child: IgnorePointer(
-        ignoring: !_controlesVisiveis,
-        child: AnimatedOpacity(
-          opacity: _controlesVisiveis ? 1.0 : 0.0,
-          duration: _duracaoFadeControles,
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) => LayoutBuilder(
-              builder: (context, constraints) =>
-                  _buildIndicadorRolagem(constraints.maxHeight),
-            ),
-          ),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => LayoutBuilder(
+          builder: (context, constraints) =>
+              _buildIndicadorRolagem(constraints.maxHeight),
         ),
       ),
     );
