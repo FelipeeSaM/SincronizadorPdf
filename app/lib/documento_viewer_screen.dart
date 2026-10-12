@@ -11,6 +11,8 @@ import 'sync/reading_position_sync_service.dart';
 
 const _intervaloSincronizacao = Duration(seconds: 5);
 const _debouncePosicaoLocal = Duration(milliseconds: 400);
+const _esperaFadeOutNome = Duration(seconds: 3);
+const _duracaoFadeNome = Duration(seconds: 1);
 
 /// Cor de preenchimento usada para desenhar o overlay de Highlight sobre o
 /// texto selecionado (ver ADR-0001): o PDF original nunca é modificado.
@@ -111,9 +113,14 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
 
   Timer? _timerSincronizacao;
   Timer? _debounceRolagem;
+  Timer? _timerFadeOutNome;
   PosicaoLeitura? _posicaoInicial;
   bool _carregandoPosicaoInicial = true;
   List<Highlight> _highlights = [];
+
+  // Nome do Documento no cabeçalho: visível ao abrir, some após
+  // `_esperaFadeOutNome` parado e volta a aparecer a cada rolagem (#21).
+  bool _nomeVisivel = true;
 
   // Assume em foco ao montar: a tela só é construída enquanto visível.
   // Atualizado só depois pelas transições reportadas a `didChangeAppLifecycleState`.
@@ -124,6 +131,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_aoRolar);
+    _reiniciarTimerFadeOutNome();
     unawaited(_carregarEstadoInicial());
   }
 
@@ -132,6 +140,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_aoRolar);
     _debounceRolagem?.cancel();
+    _timerFadeOutNome?.cancel();
     _pararSincronizacaoPeriodica();
     _salvarPosicaoAtualLocal();
     super.dispose();
@@ -199,8 +208,29 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   }
 
   void _aoRolar() {
+    // Suspende o fade out enquanto a rolagem continuar — o nome só é
+    // trazido de volta (fade in) quando ela termina, abaixo.
+    _timerFadeOutNome?.cancel();
     _debounceRolagem?.cancel();
-    _debounceRolagem = Timer(_debouncePosicaoLocal, _salvarPosicaoAtualLocal);
+    _debounceRolagem = Timer(_debouncePosicaoLocal, () {
+      _salvarPosicaoAtualLocal();
+      _mostrarNomeDocumento();
+      _reiniciarTimerFadeOutNome();
+    });
+  }
+
+  void _mostrarNomeDocumento() {
+    if (!_nomeVisivel) setState(() => _nomeVisivel = true);
+  }
+
+  void _reiniciarTimerFadeOutNome() {
+    _timerFadeOutNome?.cancel();
+    _timerFadeOutNome = Timer(_esperaFadeOutNome, _esconderNomeDocumento);
+  }
+
+  void _esconderNomeDocumento() {
+    if (!mounted) return;
+    setState(() => _nomeVisivel = false);
   }
 
   void _salvarPosicaoAtualLocal() {
@@ -361,17 +391,25 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     await highlightSyncService.apagar(hash: widget.hash, highlight: highlight);
   }
 
+  AppBar _buildAppBar() => AppBar(
+    title: AnimatedOpacity(
+      opacity: _nomeVisivel ? 1.0 : 0.0,
+      duration: _duracaoFadeNome,
+      child: Text(widget.nomeDocumento),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     if (_carregandoPosicaoInicial) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.nomeDocumento)),
+        appBar: _buildAppBar(),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.nomeDocumento)),
+      appBar: _buildAppBar(),
       body: PdfViewer.file(
         widget.caminhoDocumento,
         controller: _controller,
