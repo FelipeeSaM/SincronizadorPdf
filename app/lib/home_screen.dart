@@ -196,10 +196,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _abrirPareamento() {
-    Navigator.of(
+  /// Abre a tela de Pareamento e, ao voltar, recarrega o Dispositivo
+  /// pareado — não basta o valor lido em [_inicializarSincronizacao], já
+  /// que o app pode ter sido aberto antes do Pareamento ser confirmado
+  /// (ver #15).
+  Future<void> _abrirPareamento() async {
+    await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const PairingScreen()));
+
+    final dispositivoPareadoId = await _pairedDeviceStore.obter();
+    if (!mounted) return;
+    setState(() => _dispositivoPareadoId = dispositivoPareadoId);
   }
 
   void _abrirBiblioteca() {
