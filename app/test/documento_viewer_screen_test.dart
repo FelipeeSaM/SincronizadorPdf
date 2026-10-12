@@ -189,6 +189,22 @@ void main() {
       },
     );
 
+    test(
+      'trilho menor que a altura mínima (ex: frame transitório ao '
+      'redimensionar a janela) não lança exceção, só satura no trilho',
+      () {
+        final indicador = calcularIndicadorRolagem(
+          alturaTrilho: 10,
+          alturaDocumento: 4000,
+          visivel: const Rect.fromLTWH(0, 0, 600, 1000),
+          alturaMinima: 32,
+        );
+
+        expect(indicador.altura, 10.0);
+        expect(indicador.topo, 0.0);
+      },
+    );
+
     test('Documento sem altura (ainda carregando) não produz indicador', () {
       final indicador = calcularIndicadorRolagem(
         alturaTrilho: 1000,

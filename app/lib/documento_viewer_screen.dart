@@ -85,7 +85,17 @@ double calcularPercentualRolagem({
   final topoFracao = (visivel.top / alturaDocumento).clamp(0.0, 1.0);
   final alturaFracao = (visivel.height / alturaDocumento).clamp(0.0, 1.0);
 
-  final altura = (alturaFracao * alturaTrilho).clamp(alturaMinima, alturaTrilho);
+  // `alturaMinima` só é um limite inferior válido para o clamp abaixo
+  // enquanto o trilho for maior que ela — do contrário (trilho menor que
+  // a altura mínima, o que pode acontecer num frame transitório durante
+  // redimensionar/maximizar a janela) o próprio trilho vira o teto real.
+  final limiteInferiorAltura = alturaMinima < alturaTrilho
+      ? alturaMinima
+      : alturaTrilho;
+  final altura = (alturaFracao * alturaTrilho).clamp(
+    limiteInferiorAltura,
+    alturaTrilho,
+  );
   final topo = (topoFracao * alturaTrilho).clamp(0.0, alturaTrilho - altura);
 
   return (topo: topo, altura: altura);
@@ -336,7 +346,14 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   }
 
   void _aoFicarPronto(PdfDocument document, PdfViewerController controller) {
-    setState(() => _visualizadorPronto = true);
+    // Adiado para depois do frame atual: chamar `setState` direto aqui,
+    // dentro do próprio callback de pronto do `pdfrx`, reconstrói a tela
+    // (e portanto o `PdfViewer`) de forma reentrante, no meio da própria
+    // inicialização dele — o que nesse ambiente deixava a tela presa em
+    // preto (ver #23).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _visualizadorPronto = true);
+    });
 
     final posicao = _posicaoInicial;
     if (posicao == null) return;
@@ -519,26 +536,37 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   /// (ver #23). Só no PC (`_exibirBarraRolagem`) e sempre visível ali,
   /// sem o fade do cabeçalho.
   ///
+  /// Construída via `viewerOverlayBuilder` (ponto de extensão oficial do
+  /// `pdfrx` para overlays sobre o Documento, usado por exemplo pelo seu
+  /// próprio `PdfViewerScrollThumb`) em vez de um `Positioned` irmão num
+  /// `Stack` externo ao `PdfViewer`: colocá-la fora, sobrepondo o
+  /// Documento a partir de um `Stack` nosso, deixava a tela presa em
+  /// preto nesse ambiente assim que o visualizador ficava pronto — mesmo
+  /// com um `Container` estático, sem nenhuma lógica. Dentro do
+  /// `viewerOverlayBuilder`, o widget entra no `Stack` que o próprio
+  /// `pdfrx` já gerencia internamente (que já empilha vários overlays
+  /// sem esse problema), e é reconstruído automaticamente a cada
+  /// mudança relevante do `_controller`, sem precisarmos de um
+  /// `AnimatedBuilder` próprio.
+  ///
   /// Só é construída depois de `_visualizadorPronto`: antes disso,
   /// `documentSize`/`visibleRect` do controller ainda não existem.
-  Widget _buildBarraRolagem() {
-    if (!_exibirBarraRolagem || !_visualizadorPronto) {
-      return const SizedBox.shrink();
-    }
+  List<Widget> _buildOverlaysDoVisualizador(
+    BuildContext context,
+    Size size,
+    PdfViewerHandleLinkTap handleLinkTap,
+  ) {
+    if (!_exibirBarraRolagem || !_visualizadorPronto) return const [];
 
-    return Positioned(
-      top: 0,
-      bottom: 0,
-      right: 0,
-      width: _larguraBarraRolagem,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) => LayoutBuilder(
-          builder: (context, constraints) =>
-              _buildIndicadorRolagem(constraints.maxHeight),
-        ),
+    return [
+      Positioned(
+        top: 0,
+        right: 0,
+        width: _larguraBarraRolagem,
+        height: size.height,
+        child: _buildIndicadorRolagem(size.height),
       ),
-    );
+    ];
   }
 
   Widget _buildIndicadorRolagem(double alturaTrilho) {
@@ -626,11 +654,11 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
                 pagePaintCallbacks: [_pintarHighlights],
                 customizeContextMenuItems: _personalizarMenuContexto,
                 onGeneralTap: _aoTocarNoVisualizador,
+                viewerOverlayBuilder: _buildOverlaysDoVisualizador,
               ),
             ),
           ),
           _buildCabecalhoFlutuante(),
-          _buildBarraRolagem(),
         ],
       ),
     );
