@@ -32,6 +32,9 @@ namespace SincronizadorPdf.Backend.Api.Transferencia.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("OriginDeviceId")
                         .HasColumnType("TEXT");
 

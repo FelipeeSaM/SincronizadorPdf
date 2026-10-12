@@ -24,12 +24,19 @@ public class TransferEndpointsTests
         await db.SaveChangesAsync();
     }
 
-    private static Task<HttpResponseMessage> UploadRawAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content) =>
-        client.PostAsync($"/transferencias?originDeviceId={originDeviceId}&targetDeviceId={targetDeviceId}", new ByteArrayContent(content));
-
-    private static async Task<string> UploadAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content)
+    private static Task<HttpResponseMessage> UploadRawAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content, string? fileName = null)
     {
-        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, content);
+        var url = $"/transferencias?originDeviceId={originDeviceId}&targetDeviceId={targetDeviceId}";
+        if (fileName is not null)
+        {
+            url += $"&fileName={Uri.EscapeDataString(fileName)}";
+        }
+        return client.PostAsync(url, new ByteArrayContent(content));
+    }
+
+    private static async Task<string> UploadAsync(HttpClient client, Guid originDeviceId, Guid targetDeviceId, byte[] content, string? fileName = null)
+    {
+        var response = await UploadRawAsync(client, originDeviceId, targetDeviceId, content, fileName);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<UploadTransferResponse>();
         return body!.Hash;
@@ -260,6 +267,58 @@ public class TransferEndpointsTests
 
         var hashes = await response.Content.ReadFromJsonAsync<List<string>>();
         Assert.Empty(hashes!);
+    }
+
+    [Fact]
+    public async Task ReuploadingPendingTransferWithFileName_CompletesPreviouslyUnnamedRecord()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var content = "conteudo-reenviado-com-nome-depois"u8.ToArray();
+
+        var firstHash = await UploadAsync(client, originDeviceId, targetDeviceId, content);
+        var secondHash = await UploadAsync(client, originDeviceId, targetDeviceId, content, fileName: "chegou-com-nome.pdf");
+
+        Assert.Equal(firstHash, secondHash);
+        var downloadResponse = await DownloadAsync(client, firstHash, targetDeviceId);
+        var nameHeader = Assert.Single(downloadResponse.Headers.GetValues("X-Document-Name"));
+        Assert.Equal("chegou-com-nome.pdf", Uri.UnescapeDataString(nameHeader));
+    }
+
+    [Fact]
+    public async Task Download_AfterUploadWithFileName_ReturnsOriginalNameInHeader()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-com-nome"u8.ToArray(), fileName: "relatório final.pdf");
+
+        var response = await DownloadAsync(client, hash, targetDeviceId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var nameHeader = Assert.Single(response.Headers.GetValues("X-Document-Name"));
+        Assert.Equal("relatório final.pdf", Uri.UnescapeDataString(nameHeader));
+    }
+
+    [Fact]
+    public async Task Download_AfterUploadWithoutFileName_HasNoNameHeader()
+    {
+        using var factory = new TransferApiFactory();
+        var client = factory.CreateClient();
+        var originDeviceId = Guid.NewGuid();
+        var targetDeviceId = Guid.NewGuid();
+        await PairDevicesAsync(factory, originDeviceId, targetDeviceId);
+        var hash = await UploadAsync(client, originDeviceId, targetDeviceId, "conteudo-sem-nome"u8.ToArray());
+
+        var response = await DownloadAsync(client, hash, targetDeviceId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(response.Headers.Contains("X-Document-Name"));
     }
 
     [Fact]

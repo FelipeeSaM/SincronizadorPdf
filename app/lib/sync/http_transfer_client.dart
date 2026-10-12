@@ -22,10 +22,11 @@ class HttpTransferClient implements TransferClient {
     required String origemDispositivoId,
     required String destinoDispositivoId,
     required Uint8List conteudo,
+    required String nome,
   }) async {
     final response = await _http.post(
       Uri.parse(
-        '$_baseUrl/transferencias?originDeviceId=$origemDispositivoId&targetDeviceId=$destinoDispositivoId',
+        '$_baseUrl/transferencias?originDeviceId=$origemDispositivoId&targetDeviceId=$destinoDispositivoId&fileName=${Uri.encodeQueryComponent(nome)}',
       ),
       headers: const {'Content-Type': 'application/octet-stream'},
       body: conteudo,
@@ -59,7 +60,7 @@ class HttpTransferClient implements TransferClient {
   }
 
   @override
-  Future<Uint8List> baixar({
+  Future<DocumentoBaixado> baixar({
     required String hash,
     required String dispositivoId,
   }) async {
@@ -71,7 +72,11 @@ class HttpTransferClient implements TransferClient {
       throw Exception('Falha ao baixar Documento: HTTP ${response.statusCode}');
     }
 
-    return response.bodyBytes;
+    final nomeHeader = response.headers['x-document-name'];
+    return (
+      conteudo: response.bodyBytes,
+      nome: nomeHeader == null ? null : Uri.decodeComponent(nomeHeader),
+    );
   }
 
   @override

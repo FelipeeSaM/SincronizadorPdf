@@ -18,9 +18,9 @@ public static class TransferEndpoints
             return Results.Ok(hashes);
         });
 
-        group.MapPost("", async (Guid originDeviceId, Guid targetDeviceId, HttpRequest request, TransferService service, CancellationToken cancellationToken) =>
+        group.MapPost("", async (Guid originDeviceId, Guid targetDeviceId, string? fileName, HttpRequest request, TransferService service, CancellationToken cancellationToken) =>
         {
-            var result = await service.UploadAsync(originDeviceId, targetDeviceId, request.Body, cancellationToken);
+            var result = await service.UploadAsync(originDeviceId, targetDeviceId, request.Body, fileName, cancellationToken);
             return result.Outcome switch
             {
                 UploadTransferOutcome.Success => Results.Created($"/transferencias/{result.Hash}", new UploadTransferResponse(result.Hash!)),
@@ -29,10 +29,21 @@ public static class TransferEndpoints
             };
         });
 
-        group.MapGet("/{hash}", async (string hash, Guid deviceId, TransferService service, CancellationToken cancellationToken) =>
+        group.MapGet("/{hash}", async (string hash, Guid deviceId, TransferService service, HttpContext context, CancellationToken cancellationToken) =>
         {
-            var content = await service.DownloadAsync(hash, deviceId, cancellationToken);
-            return content is null ? Results.NotFound() : Results.Bytes(content, "application/octet-stream");
+            var transfer = await service.DownloadAsync(hash, deviceId, cancellationToken);
+            if (transfer is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (transfer.Name is not null)
+            {
+                // Nome original (ver #19): escapado porque cabeçalhos HTTP só
+                // aceitam ASCII, e o nome pode conter acentos.
+                context.Response.Headers["X-Document-Name"] = Uri.EscapeDataString(transfer.Name);
+            }
+            return Results.Bytes(transfer.Content, "application/octet-stream");
         });
 
         group.MapPost("/{hash}/confirmacoes", async (string hash, ConfirmReceiptRequest request, TransferService service, CancellationToken cancellationToken) =>

@@ -250,6 +250,43 @@ void main() {
   );
 
   test(
+    'sincronizar baixa um Documento com nome original propagado e usa esse '
+    'nome na Biblioteca, não um nome derivado do hash',
+    () async {
+      final conteudo = Uint8List.fromList('documento-com-nome'.codeUnits);
+      final hash = hashDe(conteudo);
+      transferClient.semearPendente(
+        destinoDispositivoId: origemId,
+        conteudo: conteudo,
+        nome: 'relatório.pdf',
+      );
+
+      await service.sincronizar();
+
+      final documento = await biblioteca.obterPorHash(hash);
+      expect(documento!.nome, 'relatório.pdf');
+    },
+  );
+
+  test(
+    'sincronizar baixa um Documento sem nome propagado (Transferência '
+    'anterior à #19) e cai no nome derivado do hash',
+    () async {
+      final conteudo = Uint8List.fromList('documento-sem-nome'.codeUnits);
+      final hash = hashDe(conteudo);
+      transferClient.semearPendente(
+        destinoDispositivoId: origemId,
+        conteudo: conteudo,
+      );
+
+      await service.sincronizar();
+
+      final documento = await biblioteca.obterPorHash(hash);
+      expect(documento!.nome, 'Documento ${hash.substring(0, 8)}.pdf');
+    },
+  );
+
+  test(
     'sincronizar com Backend indisponível não falha e tenta de novo depois',
     () async {
       transferClient.indisponivel = true;

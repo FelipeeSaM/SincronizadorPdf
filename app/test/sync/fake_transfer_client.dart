@@ -16,6 +16,7 @@ class FakeTransferClient implements TransferClient {
   bool naoPareado = false;
 
   final Map<String, Map<String, Uint8List>> _pendentesPorDestino = {};
+  final Map<String, Map<String, String>> _nomesPorDestino = {};
   final List<String> enviosRecebidos = [];
   final List<String> confirmacoesRecebidas = [];
 
@@ -24,6 +25,7 @@ class FakeTransferClient implements TransferClient {
     required String origemDispositivoId,
     required String destinoDispositivoId,
     required Uint8List conteudo,
+    required String nome,
   }) async {
     if (naoPareado) throw const DispositivosNaoPareados();
     if (indisponivel) throw Exception('Backend indisponível');
@@ -31,6 +33,7 @@ class FakeTransferClient implements TransferClient {
     final hash = sha256.convert(conteudo).toString();
     _pendentesPorDestino.putIfAbsent(destinoDispositivoId, () => {})[hash] =
         conteudo;
+    _nomesPorDestino.putIfAbsent(destinoDispositivoId, () => {})[hash] = nome;
     enviosRecebidos.add(hash);
     return hash;
   }
@@ -43,7 +46,7 @@ class FakeTransferClient implements TransferClient {
   }
 
   @override
-  Future<Uint8List> baixar({
+  Future<DocumentoBaixado> baixar({
     required String hash,
     required String dispositivoId,
   }) async {
@@ -51,7 +54,7 @@ class FakeTransferClient implements TransferClient {
 
     final conteudo = _pendentesPorDestino[dispositivoId]?[hash];
     if (conteudo == null) throw Exception('Transferência não encontrada');
-    return conteudo;
+    return (conteudo: conteudo, nome: _nomesPorDestino[dispositivoId]?[hash]);
   }
 
   @override
@@ -66,14 +69,21 @@ class FakeTransferClient implements TransferClient {
   }
 
   /// Simula uma Transferência já pendente no Backend, endereçada a
-  /// [destinoDispositivoId], sem passar por [enviar].
+  /// [destinoDispositivoId], sem passar por [enviar]. [nome] é o nome
+  /// original propagado pelo Backend (ver #19); `null` simula uma
+  /// Transferência sem nome associado.
   void semearPendente({
     required String destinoDispositivoId,
     required Uint8List conteudo,
+    String? nome,
   }) {
     final hash = sha256.convert(conteudo).toString();
     _pendentesPorDestino.putIfAbsent(destinoDispositivoId, () => {})[hash] =
         conteudo;
+    if (nome != null) {
+      _nomesPorDestino.putIfAbsent(destinoDispositivoId, () => {})[hash] =
+          nome;
+    }
   }
 }
 

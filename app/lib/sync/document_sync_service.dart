@@ -57,6 +57,7 @@ class DocumentSyncService {
         !documento.enviadoPara.contains(destinoDispositivoId)) {
       final enviado = await _tentarEnviar(
         hash: hash,
+        nome: documento.nome,
         destinoDispositivoId: destinoDispositivoId,
         conteudo: conteudo,
       );
@@ -78,6 +79,7 @@ class DocumentSyncService {
   /// já persistido via [BibliotecaStore.marcarEnviadoPara]).
   Future<bool> _tentarEnviar({
     required String hash,
+    required String nome,
     required String destinoDispositivoId,
     required Uint8List conteudo,
   }) async {
@@ -86,6 +88,7 @@ class DocumentSyncService {
         origemDispositivoId: dispositivoId,
         destinoDispositivoId: destinoDispositivoId,
         conteudo: conteudo,
+        nome: nome,
       );
       await bibliotecaStore.marcarEnviadoPara(
         hash: hash,
@@ -134,6 +137,7 @@ class DocumentSyncService {
           origemDispositivoId: dispositivoId,
           destinoDispositivoId: pedido.destinoDispositivoId,
           conteudo: conteudo,
+          nome: documento.nome,
         );
         await bibliotecaStore.marcarEnviadoPara(
           hash: pedido.hash,
@@ -167,14 +171,14 @@ class DocumentSyncService {
       }
 
       try {
-        final conteudo = await transferClient.baixar(
+        final baixado = await transferClient.baixar(
           hash: hash,
           dispositivoId: dispositivoId,
         );
         await bibliotecaStore.adicionar(
           hash: hash,
-          nome: _nomeParaDocumentoRecebido(hash),
-          conteudo: conteudo,
+          nome: baixado.nome ?? _nomeParaDocumentoRecebido(hash),
+          conteudo: baixado.conteudo,
         );
         await _confirmarRecebimento(hash);
       } catch (_) {
@@ -194,6 +198,8 @@ class DocumentSyncService {
     }
   }
 
+  /// Fallback apenas para Transferências sem nome original propagado pelo
+  /// Backend (ver #19), ex: enviadas por uma versão anterior do app.
   String _nomeParaDocumentoRecebido(String hash) =>
       'Documento ${hash.substring(0, 8)}.pdf';
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 
 import 'biblioteca/documento_biblioteca.dart';
@@ -32,6 +31,7 @@ Future<void> abrirNoVisualizador(
     MaterialPageRoute<void>(
       builder: (_) => DocumentoViewerScreen(
         caminhoDocumento: documento.caminhoArquivo,
+        nomeDocumento: documento.nome,
         hash: documento.hash,
         posicaoLeituraSyncService: posicaoLeituraSyncService,
         highlightSyncService: highlightSyncService,
@@ -76,6 +76,7 @@ class DocumentoViewerScreen extends StatefulWidget {
   const DocumentoViewerScreen({
     super.key,
     required this.caminhoDocumento,
+    required this.nomeDocumento,
     required this.hash,
     this.posicaoLeituraSyncService,
     this.highlightSyncService,
@@ -83,6 +84,11 @@ class DocumentoViewerScreen extends StatefulWidget {
 
   /// Caminho local do arquivo PDF a ser exibido.
   final String caminhoDocumento;
+
+  /// Nome de exibição do Documento (ver [DocumentoBiblioteca.nome]),
+  /// mostrado no cabeçalho — não deve ser derivado de [caminhoDocumento],
+  /// que é sempre `<hash>.pdf` na Biblioteca (ver #19).
+  final String nomeDocumento;
 
   /// Hash do conteúdo do Documento, sua identidade entre Dispositivos.
   final String hash;
@@ -357,17 +363,15 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final nomeDocumento = p.basename(widget.caminhoDocumento);
-
     if (_carregandoPosicaoInicial) {
       return Scaffold(
-        appBar: AppBar(title: Text(nomeDocumento)),
+        appBar: AppBar(title: Text(widget.nomeDocumento)),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(nomeDocumento)),
+      appBar: AppBar(title: Text(widget.nomeDocumento)),
       body: PdfViewer.file(
         widget.caminhoDocumento,
         controller: _controller,
