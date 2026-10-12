@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../documento_viewer_screen.dart';
+import '../sync/reading_position_sync_service.dart';
 import 'biblioteca_store.dart';
 import 'documento_biblioteca.dart';
 
 /// Tela de Biblioteca: lista os Documentos cujo arquivo completo já chegou
 /// a este Dispositivo (enviados ou recebidos), permitindo reabri-los.
 class BibliotecaScreen extends StatefulWidget {
-  const BibliotecaScreen({super.key, required this.bibliotecaStore});
+  const BibliotecaScreen({
+    super.key,
+    required this.bibliotecaStore,
+    this.posicaoLeituraSyncService,
+  });
 
   final BibliotecaStore bibliotecaStore;
+
+  /// Reconciliação da Posição de Leitura com o Backend; `null` quando não
+  /// há Backend configurado (ver #8).
+  final ReadingPositionSyncService? posicaoLeituraSyncService;
 
   @override
   State<BibliotecaScreen> createState() => _BibliotecaScreenState();
@@ -50,7 +59,11 @@ class _BibliotecaScreenState extends State<BibliotecaScreen> {
                 leading: const Icon(Icons.picture_as_pdf),
                 title: Text(documento.nome),
                 subtitle: Text('Recebido em ${documento.recebidoEm}'),
-                onTap: () => abrirNoVisualizador(context, documento),
+                onTap: () => abrirNoVisualizador(
+                  context,
+                  documento,
+                  posicaoLeituraSyncService: widget.posicaoLeituraSyncService,
+                ),
               );
             },
           );

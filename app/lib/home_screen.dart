@@ -17,8 +17,11 @@ import 'sync/backend_url_store.dart';
 import 'sync/device_id_store.dart';
 import 'sync/document_sync_service.dart';
 import 'sync/fila_transferencia.dart';
+import 'sync/http_reading_position_client.dart';
 import 'sync/http_transfer_client.dart';
 import 'sync/paired_device_store.dart';
+import 'sync/posicao_leitura_store.dart';
+import 'sync/reading_position_sync_service.dart';
 
 const _intervaloSincronizacao = Duration(seconds: 5);
 
@@ -40,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _pairedDeviceStore = const PairedDeviceStore();
 
   DocumentSyncService? _syncService;
+  ReadingPositionSyncService? _posicaoLeituraSyncService;
   String? _dispositivoPareadoId;
   Timer? _timerSincronizacao;
   bool _arrastandoArquivo = false;
@@ -88,6 +92,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       transferClient: HttpTransferClient(baseUrl: backendUrl),
       bibliotecaStore: _bibliotecaStore,
       filaTransferencia: FilaTransferencia(),
+      dispositivoId: dispositivoId,
+    );
+    _posicaoLeituraSyncService = ReadingPositionSyncService(
+      client: HttpReadingPositionClient(baseUrl: backendUrl),
+      store: PosicaoLeituraStore(),
       dispositivoId: dispositivoId,
     );
 
@@ -139,7 +148,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final conteudo = await File(caminhoDocumento).readAsBytes();
     final documento = await _registrarDocumento(conteudo, nome);
     if (!mounted) return;
-    await abrirNoVisualizador(context, documento);
+    await abrirNoVisualizador(
+      context,
+      documento,
+      posicaoLeituraSyncService: _posicaoLeituraSyncService,
+    );
   }
 
   Future<void> _abrirDocumento() async {
@@ -181,7 +194,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _abrirBiblioteca() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => BibliotecaScreen(bibliotecaStore: _bibliotecaStore),
+        builder: (_) => BibliotecaScreen(
+          bibliotecaStore: _bibliotecaStore,
+          posicaoLeituraSyncService: _posicaoLeituraSyncService,
+        ),
       ),
     );
   }
