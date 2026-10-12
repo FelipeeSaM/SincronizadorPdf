@@ -67,6 +67,17 @@ class DocumentSyncService {
     return documento;
   }
 
+  /// Remove o Documento [hash] da Biblioteca local e cancela qualquer
+  /// pedido de Transferência ainda pendente para ele na Fila Local (ver
+  /// #20) — não faz sentido continuar tentando enviar um Documento que o
+  /// usuário acabou de apagar localmente. Não afeta o Documento original
+  /// no Dispositivo de origem; a Posição de Leitura e os Highlights
+  /// locais desse hash são mantidos (ver ADR-0006).
+  Future<void> removerDocumento(String hash) async {
+    await bibliotecaStore.remover(hash);
+    await filaTransferencia.removerPorHash(hash);
+  }
+
   /// Reenvia pedidos retidos na Fila Local de Sincronização e baixa
   /// Documentos recebidos, adicionando-os à Biblioteca. Chamado ao abrir o
   /// app e periodicamente enquanto ele está em foco (ver ADR-0005).

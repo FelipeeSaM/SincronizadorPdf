@@ -109,4 +109,26 @@ class BibliotecaStore {
     documentos[indice] = documento.comEnviadoPara(destinoDispositivoId);
     await _salvarIndice(documentos);
   }
+
+  /// Remove [hash] da Biblioteca: apaga a entrada do índice e o arquivo
+  /// físico em disco (ver #20). Não tem efeito se [hash] não estiver na
+  /// Biblioteca.
+  ///
+  /// Só afeta o estado local deste Dispositivo — não envolve o Backend de
+  /// Sincronização nem o Dispositivo de origem. Mantém a Posição de
+  /// Leitura e os Highlights locais desse hash intactos, por decisão
+  /// deliberada (ver ADR-0006).
+  Future<void> remover(String hash) async {
+    final documentos = await listar();
+    final indice = documentos.indexWhere((d) => d.hash == hash);
+    if (indice == -1) return;
+
+    final documento = documentos.removeAt(indice);
+    final arquivo = File(documento.caminhoArquivo);
+    if (await arquivo.exists()) {
+      await arquivo.delete();
+    }
+
+    await _salvarIndice(documentos);
+  }
 }

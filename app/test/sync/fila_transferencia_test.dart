@@ -78,6 +78,43 @@ void main() {
     },
   );
 
+  test(
+    'removerPorHash remove todos os pedidos daquele hash, qualquer que seja o destino',
+    () async {
+      await fila.enfileirar(
+        PedidoTransferenciaPendente(
+          hash: 'hash-5',
+          destinoDispositivoId: 'celular-1',
+          criadoEm: DateTime(2026, 1, 1),
+        ),
+      );
+      await fila.enfileirar(
+        PedidoTransferenciaPendente(
+          hash: 'hash-5',
+          destinoDispositivoId: 'celular-2',
+          criadoEm: DateTime(2026, 1, 1),
+        ),
+      );
+      await fila.enfileirar(
+        PedidoTransferenciaPendente(
+          hash: 'hash-outro',
+          destinoDispositivoId: 'celular-1',
+          criadoEm: DateTime(2026, 1, 1),
+        ),
+      );
+
+      await fila.removerPorHash('hash-5');
+
+      final restantes = await fila.listar();
+      expect(restantes.map((p) => p.hash), ['hash-outro']);
+    },
+  );
+
+  test('removerPorHash de um hash sem pedidos pendentes não falha', () async {
+    await fila.removerPorHash('hash-sem-pedidos');
+    expect(await fila.listar(), isEmpty);
+  });
+
   test('fila persiste entre instâncias diferentes', () async {
     await fila.enfileirar(
       PedidoTransferenciaPendente(

@@ -59,6 +59,42 @@ void main() {
     expect(segunda.nome, 'primeiro-nome.pdf');
   });
 
+  test('remover apaga a entrada do índice e o arquivo físico', () async {
+    final conteudo = Uint8List.fromList('conteudo-a-remover'.codeUnits);
+    final documento = await store.adicionar(
+      hash: 'hash-remover',
+      nome: 'removivel.pdf',
+      conteudo: conteudo,
+    );
+
+    await store.remover('hash-remover');
+
+    expect(await store.contem('hash-remover'), isFalse);
+    expect(await File(documento.caminhoArquivo).exists(), isFalse);
+  });
+
+  test('remover um hash que não está na Biblioteca não falha', () async {
+    await store.remover('hash-inexistente');
+    expect(await store.listar(), isEmpty);
+  });
+
+  test('remover não afeta outros Documentos na Biblioteca', () async {
+    await store.adicionar(
+      hash: 'hash-fica',
+      nome: 'fica.pdf',
+      conteudo: Uint8List.fromList('fica'.codeUnits),
+    );
+    await store.adicionar(
+      hash: 'hash-sai',
+      nome: 'sai.pdf',
+      conteudo: Uint8List.fromList('sai'.codeUnits),
+    );
+
+    await store.remover('hash-sai');
+
+    expect((await store.listar()).map((d) => d.hash), ['hash-fica']);
+  });
+
   test('índice persiste entre instâncias diferentes do store', () async {
     await store.adicionar(
       hash: 'hash-3',

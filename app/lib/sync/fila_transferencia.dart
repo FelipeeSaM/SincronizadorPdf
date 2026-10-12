@@ -73,4 +73,14 @@ class FilaTransferencia {
     );
     await _salvar(pedidos);
   }
+
+  /// Remove todos os pedidos pendentes de [hash], para qualquer Dispositivo
+  /// de destino — usado ao excluir o Documento da Biblioteca local (ver
+  /// #20): não faz sentido continuar tentando enviar um Documento que o
+  /// próprio usuário acabou de apagar.
+  Future<void> removerPorHash(String hash) async {
+    final pedidos = await listar();
+    pedidos.removeWhere((p) => p.hash == hash);
+    await _salvar(pedidos);
+  }
 }

@@ -210,11 +210,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _dispositivoPareadoId = dispositivoPareadoId);
   }
 
+  /// Remove o Documento [hash] da Biblioteca (ver #20), lendo [_syncService]
+  /// só no momento da exclusão (não quando a [BibliotecaScreen] é
+  /// construída): evita perder o cancelamento na Fila Local se o Backend
+  /// ainda estiver sendo configurado em [_inicializarSincronizacao] quando
+  /// a tela abre, mas já estiver disponível quando o usuário excluir.
+  Future<void> _removerDocumento(String hash) async {
+    final syncService = _syncService;
+    if (syncService != null) {
+      await syncService.removerDocumento(hash);
+    } else {
+      await _bibliotecaStore.remover(hash);
+    }
+  }
+
   void _abrirBiblioteca() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => BibliotecaScreen(
           bibliotecaStore: _bibliotecaStore,
+          removerDocumento: _removerDocumento,
           posicaoLeituraSyncService: _posicaoLeituraSyncService,
           highlightSyncService: _highlightSyncService,
         ),

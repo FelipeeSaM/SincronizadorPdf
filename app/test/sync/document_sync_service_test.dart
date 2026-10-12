@@ -307,4 +307,55 @@ void main() {
       expect(await biblioteca.contem(hashDe(conteudo)), isTrue);
     },
   );
+
+  test(
+    'removerDocumento apaga da Biblioteca e cancela o pedido pendente na Fila Local',
+    () async {
+      transferClient.indisponivel = true;
+      final conteudo = Uint8List.fromList('documento-a-excluir'.codeUnits);
+      final hash = hashDe(conteudo);
+
+      await service.abrirDocumento(
+        hash: hash,
+        nome: 'artigo.pdf',
+        conteudo: conteudo,
+        destinoDispositivoId: destinoId,
+      );
+      expect((await fila.listar()).map((p) => p.hash), [hash]);
+
+      await service.removerDocumento(hash);
+
+      expect(await biblioteca.contem(hash), isFalse);
+      expect(await fila.listar(), isEmpty);
+    },
+  );
+
+  test(
+    'removerDocumento não cancela pedidos pendentes de outros Documentos',
+    () async {
+      transferClient.indisponivel = true;
+      final conteudoAlvo = Uint8List.fromList('documento-alvo'.codeUnits);
+      final hashAlvo = hashDe(conteudoAlvo);
+      final conteudoOutro = Uint8List.fromList('documento-outro'.codeUnits);
+      final hashOutro = hashDe(conteudoOutro);
+
+      await service.abrirDocumento(
+        hash: hashAlvo,
+        nome: 'alvo.pdf',
+        conteudo: conteudoAlvo,
+        destinoDispositivoId: destinoId,
+      );
+      await service.abrirDocumento(
+        hash: hashOutro,
+        nome: 'outro.pdf',
+        conteudo: conteudoOutro,
+        destinoDispositivoId: destinoId,
+      );
+
+      await service.removerDocumento(hashAlvo);
+
+      expect(await biblioteca.contem(hashOutro), isTrue);
+      expect((await fila.listar()).map((p) => p.hash), [hashOutro]);
+    },
+  );
 }
