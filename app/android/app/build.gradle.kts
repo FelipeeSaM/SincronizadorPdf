@@ -30,6 +30,13 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Minificação via R8 estava quebrando o plugin mobile_scanner em
+            // runtime (NullPointerException ao iniciar a câmera, só na build
+            // release) — provavelmente falta de regra de keep para as
+            // dependências do CameraX/ML Kit. App de uso pessoal, nunca
+            // publicado em loja, então o tamanho do APK não compensa o risco.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
