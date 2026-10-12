@@ -29,12 +29,25 @@ import 'sync/reading_position_sync_service.dart';
 
 const _intervaloSincronizacao = Duration(seconds: 5);
 
+String _nomeTema(ThemeMode tema) => switch (tema) {
+  ThemeMode.system => 'Sistema',
+  ThemeMode.light => 'Claro',
+  ThemeMode.dark => 'Escuro',
+};
+
 /// Tela inicial: permite ao usuário abrir ou soltar um Documento (PDF)
 /// local para visualizar e, se houver um Dispositivo pareado, dispara a
 /// Transferência dele; também sincroniza em foco os Documentos recebidos
 /// do Dispositivo pareado (ver ADR-0005).
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    required this.temaAtual,
+    required this.onSelecionarTema,
+  });
+
+  final ThemeMode temaAtual;
+  final ValueChanged<ThemeMode> onSelecionarTema;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -224,6 +237,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _abrirSeletorTema() async {
+    final temaEscolhido = await showDialog<ThemeMode>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Tema'),
+        children: [
+          RadioGroup<ThemeMode>(
+            groupValue: widget.temaAtual,
+            onChanged: (tema) => Navigator.of(context).pop(tema),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: ThemeMode.values.map((tema) {
+                return RadioListTile<ThemeMode>(
+                  title: Text(_nomeTema(tema)),
+                  value: tema,
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (temaEscolhido != null) {
+      widget.onSelecionarTema(temaEscolhido);
+    }
+  }
+
   void _abrirBiblioteca() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -274,6 +315,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onPressed: _abrirPareamento,
                   icon: const Icon(Icons.qr_code),
                   label: const Text('Parear Dispositivo'),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: _abrirSeletorTema,
+                  icon: const Icon(Icons.brightness_6),
+                  label: const Text('Tema'),
                 ),
               ],
             ),
