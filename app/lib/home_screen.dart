@@ -16,7 +16,11 @@ import 'pairing/pairing_screen.dart';
 import 'sync/backend_url_store.dart';
 import 'sync/device_id_store.dart';
 import 'sync/document_sync_service.dart';
+import 'sync/fila_highlights.dart';
 import 'sync/fila_transferencia.dart';
+import 'sync/highlight_store.dart';
+import 'sync/highlight_sync_service.dart';
+import 'sync/http_highlight_client.dart';
 import 'sync/http_reading_position_client.dart';
 import 'sync/http_transfer_client.dart';
 import 'sync/paired_device_store.dart';
@@ -44,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   DocumentSyncService? _syncService;
   ReadingPositionSyncService? _posicaoLeituraSyncService;
+  HighlightSyncService? _highlightSyncService;
   String? _dispositivoPareadoId;
   Timer? _timerSincronizacao;
   bool _arrastandoArquivo = false;
@@ -99,6 +104,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       store: PosicaoLeituraStore(),
       dispositivoId: dispositivoId,
     );
+    _highlightSyncService = HighlightSyncService(
+      client: HttpHighlightClient(baseUrl: backendUrl),
+      store: HighlightStore(),
+      fila: FilaHighlights(),
+    );
 
     unawaited(_syncService!.sincronizar());
     _iniciarSincronizacaoPeriodica();
@@ -152,6 +162,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context,
       documento,
       posicaoLeituraSyncService: _posicaoLeituraSyncService,
+      highlightSyncService: _highlightSyncService,
     );
   }
 
@@ -197,6 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         builder: (_) => BibliotecaScreen(
           bibliotecaStore: _bibliotecaStore,
           posicaoLeituraSyncService: _posicaoLeituraSyncService,
+          highlightSyncService: _highlightSyncService,
         ),
       ),
     );

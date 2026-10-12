@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../documento_viewer_screen.dart';
+import '../sync/highlight_sync_service.dart';
 import '../sync/reading_position_sync_service.dart';
 import 'biblioteca_store.dart';
 import 'documento_biblioteca.dart';
@@ -12,6 +13,7 @@ class BibliotecaScreen extends StatefulWidget {
     super.key,
     required this.bibliotecaStore,
     this.posicaoLeituraSyncService,
+    this.highlightSyncService,
   });
 
   final BibliotecaStore bibliotecaStore;
@@ -19,6 +21,10 @@ class BibliotecaScreen extends StatefulWidget {
   /// Reconciliação da Posição de Leitura com o Backend; `null` quando não
   /// há Backend configurado (ver #8).
   final ReadingPositionSyncService? posicaoLeituraSyncService;
+
+  /// Criação, remoção e sincronização dos Highlights com o Backend;
+  /// `null` quando não há Backend configurado (ver #11).
+  final HighlightSyncService? highlightSyncService;
 
   @override
   State<BibliotecaScreen> createState() => _BibliotecaScreenState();
@@ -63,6 +69,7 @@ class _BibliotecaScreenState extends State<BibliotecaScreen> {
                   context,
                   documento,
                   posicaoLeituraSyncService: widget.posicaoLeituraSyncService,
+                  highlightSyncService: widget.highlightSyncService,
                 ),
               );
             },

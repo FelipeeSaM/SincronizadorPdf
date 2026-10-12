@@ -5,20 +5,28 @@ import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 
 import 'biblioteca/documento_biblioteca.dart';
+import 'sync/highlight.dart';
+import 'sync/highlight_sync_service.dart';
 import 'sync/posicao_leitura.dart';
 import 'sync/reading_position_sync_service.dart';
 
-const _intervaloSincronizacaoPosicao = Duration(seconds: 5);
+const _intervaloSincronizacao = Duration(seconds: 5);
 const _debouncePosicaoLocal = Duration(milliseconds: 400);
+
+/// Cor de preenchimento usada para desenhar o overlay de Highlight sobre o
+/// texto selecionado (ver ADR-0001): o PDF original nunca é modificado.
+const _corHighlight = Color(0x664CAF50);
 
 /// Abre [documento] da Biblioteca no visualizador, empilhando a tela sobre
 /// [context]. Se [posicaoLeituraSyncService] for informado, a Posição de
 /// Leitura do Documento é reconciliada com o Backend ao abrir e enquanto a
-/// tela estiver em foco (ver #8, ADR-0005).
+/// tela estiver em foco (ver #8, ADR-0005). Se [highlightSyncService] for
+/// informado, o mesmo vale para os Highlights do Documento (ver #11).
 Future<void> abrirNoVisualizador(
   BuildContext context,
   DocumentoBiblioteca documento, {
   ReadingPositionSyncService? posicaoLeituraSyncService,
+  HighlightSyncService? highlightSyncService,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
@@ -26,6 +34,7 @@ Future<void> abrirNoVisualizador(
         caminhoDocumento: documento.caminhoArquivo,
         hash: documento.hash,
         posicaoLeituraSyncService: posicaoLeituraSyncService,
+        highlightSyncService: highlightSyncService,
       ),
     ),
   );
@@ -34,10 +43,28 @@ Future<void> abrirNoVisualizador(
 /// Calcula o percentual de rolagem (ver CONTEXT.md) dentro de [pagina]:
 /// a fração da altura da página já rolada para cima do topo da área
 /// visível [visivel], entre 0.0 (topo da página) e 1.0 (fim da página).
-double calcularPercentualRolagem({required Rect pagina, required Rect visivel}) {
+double calcularPercentualRolagem({
+  required Rect pagina,
+  required Rect visivel,
+}) {
   if (pagina.height <= 0) return 0;
   return ((visivel.top - pagina.top) / pagina.height).clamp(0.0, 1.0);
 }
+
+/// Converte um trecho de texto selecionado [range] (ver `pdfrx`) para os
+/// retângulos que desenham o Highlight sobre ele: um retângulo por linha
+/// de texto abrangida pela seleção, em vez de um único retângulo
+/// grosseiro que também cobriria o espaço entre linhas quando a seleção
+/// cruza mais de uma (ADR-0001).
+List<HighlightRect> retangulosDaSelecao(PdfPageTextRange range) => [
+  for (final fragmento in range.enumerateFragmentBoundingRects())
+    HighlightRect(
+      left: fragmento.bounds.left,
+      top: fragmento.bounds.top,
+      right: fragmento.bounds.right,
+      bottom: fragmento.bounds.bottom,
+    ),
+];
 
 /// Tela de visualização local de um Documento (PDF) escolhido pelo usuário.
 ///
@@ -51,6 +78,7 @@ class DocumentoViewerScreen extends StatefulWidget {
     required this.caminhoDocumento,
     required this.hash,
     this.posicaoLeituraSyncService,
+    this.highlightSyncService,
   });
 
   /// Caminho local do arquivo PDF a ser exibido.
@@ -62,6 +90,10 @@ class DocumentoViewerScreen extends StatefulWidget {
   /// Reconciliação da Posição de Leitura com o Backend; `null` quando não
   /// há Backend configurado (ver [abrirNoVisualizador]).
   final ReadingPositionSyncService? posicaoLeituraSyncService;
+
+  /// Criação, remoção e sincronização dos Highlights com o Backend;
+  /// `null` quando não há Backend configurado (ver [abrirNoVisualizador]).
+  final HighlightSyncService? highlightSyncService;
 
   @override
   State<DocumentoViewerScreen> createState() => _DocumentoViewerScreenState();
@@ -75,6 +107,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
   Timer? _debounceRolagem;
   PosicaoLeitura? _posicaoInicial;
   bool _carregandoPosicaoInicial = true;
+  List<Highlight> _highlights = [];
 
   // Assume em foco ao montar: a tela só é construída enquanto visível.
   // Atualizado só depois pelas transições reportadas a `didChangeAppLifecycleState`.
@@ -85,7 +118,7 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_aoRolar);
-    unawaited(_carregarPosicaoInicial());
+    unawaited(_carregarEstadoInicial());
   }
 
   @override
@@ -110,27 +143,48 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
     }
   }
 
-  Future<void> _carregarPosicaoInicial() async {
-    final syncService = widget.posicaoLeituraSyncService;
-    final posicao = syncService == null
+  Future<void> _carregarEstadoInicial() async {
+    final posicaoSyncService = widget.posicaoLeituraSyncService;
+    final highlightSyncService = widget.highlightSyncService;
+
+    final posicao = posicaoSyncService == null
         ? null
-        : await syncService.sincronizar(widget.hash);
+        : await posicaoSyncService.sincronizar(widget.hash);
+    final highlights = highlightSyncService == null
+        ? <Highlight>[]
+        : await highlightSyncService.sincronizar(widget.hash);
 
     if (!mounted) return;
     setState(() {
       _posicaoInicial = posicao;
+      _highlights = highlights;
       _carregandoPosicaoInicial = false;
     });
     _iniciarSincronizacaoPeriodica();
   }
 
   void _iniciarSincronizacaoPeriodica() {
-    final syncService = widget.posicaoLeituraSyncService;
-    if (syncService == null || !_emFoco || _timerSincronizacao != null) return;
+    final temServicoDeSincronizacao =
+        widget.posicaoLeituraSyncService != null ||
+        widget.highlightSyncService != null;
+    if (!temServicoDeSincronizacao || !_emFoco || _timerSincronizacao != null) {
+      return;
+    }
     _timerSincronizacao = Timer.periodic(
-      _intervaloSincronizacaoPosicao,
-      (_) => syncService.sincronizar(widget.hash),
+      _intervaloSincronizacao,
+      (_) => _sincronizarPeriodicamente(),
     );
+  }
+
+  Future<void> _sincronizarPeriodicamente() async {
+    await widget.posicaoLeituraSyncService?.sincronizar(widget.hash);
+
+    final highlightSyncService = widget.highlightSyncService;
+    if (highlightSyncService == null) return;
+
+    final highlights = await highlightSyncService.sincronizar(widget.hash);
+    if (!mounted) return;
+    setState(() => _highlights = highlights);
   }
 
   void _pararSincronizacaoPeriodica() {
@@ -178,6 +232,129 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
 
   Rect _pageLayout(int pagina) => _controller.layout.pageLayouts[pagina - 1];
 
+  /// Desenha o overlay de cada Highlight conhecido de [page] (ver
+  /// ADR-0001), chamado pelo `pdfrx` a cada repintura da página.
+  void _pintarHighlights(Canvas canvas, Rect pageRect, PdfPage page) {
+    final tinta = Paint()..color = _corHighlight;
+    for (final highlight in _highlights) {
+      if (highlight.page != page.pageNumber) continue;
+      for (final rect in highlight.rects) {
+        canvas.drawRect(_retanguloNoDocumento(rect, page, pageRect), tinta);
+      }
+    }
+  }
+
+  Rect _retanguloNoDocumento(HighlightRect rect, PdfPage page, Rect pageRect) =>
+      PdfRect(
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom,
+      ).toRectInDocument(page: page, pageRect: pageRect);
+
+  /// Acrescenta o botão "Destacar" ao menu de contexto da seleção de
+  /// texto, responsável por criar o Highlight (ver [_criarHighlightDaSelecao]).
+  /// Sem [HighlightSyncService] configurado ou sem texto selecionado (ex:
+  /// Documento sem camada de texto), não acrescenta nada — a seleção
+  /// continua funcionando normalmente, apenas sem a opção de Highlight.
+  void _personalizarMenuContexto(
+    PdfViewerContextMenuBuilderParams params,
+    List<ContextMenuButtonItem> items,
+  ) {
+    if (widget.highlightSyncService == null) return;
+    if (!params.isTextSelectionEnabled ||
+        !params.textSelectionDelegate.hasSelectedText) {
+      return;
+    }
+
+    items.add(
+      ContextMenuButtonItem(
+        label: 'Destacar',
+        onPressed: () => unawaited(_criarHighlightDaSelecao(params)),
+      ),
+    );
+  }
+
+  Future<void> _criarHighlightDaSelecao(
+    PdfViewerContextMenuBuilderParams params,
+  ) async {
+    final highlightSyncService = widget.highlightSyncService;
+    if (highlightSyncService == null) return;
+
+    final ranges = await params.textSelectionDelegate.getSelectedTextRanges();
+    await params.textSelectionDelegate.clearTextSelection();
+    params.dismissContextMenu();
+
+    for (final range in ranges) {
+      final rects = retangulosDaSelecao(range);
+      if (rects.isEmpty) continue;
+
+      final highlight = await highlightSyncService.criar(
+        hash: widget.hash,
+        page: range.pageNumber,
+        rects: rects,
+        trechoTexto: range.text,
+      );
+      if (!mounted) return;
+      setState(() => _highlights = [..._highlights, highlight]);
+    }
+  }
+
+  /// Trata o toque simples sobre o visualizador: se cair sobre um
+  /// Highlight existente, apaga-o e consome o toque; caso contrário,
+  /// devolve o controle ao `pdfrx` para o tratamento padrão.
+  bool _aoTocarNoVisualizador(
+    BuildContext context,
+    PdfViewerController controller,
+    PdfViewerGeneralTapHandlerDetails details,
+  ) {
+    if (widget.highlightSyncService == null) return false;
+    if (details.type != PdfViewerGeneralTapType.tap) return false;
+
+    final highlight = _highlightTocado(details.documentPosition);
+    if (highlight == null) return false;
+
+    unawaited(_apagarHighlight(highlight));
+    return true;
+  }
+
+  Highlight? _highlightTocado(Offset posicaoNoDocumento) {
+    const margem = 4.0;
+
+    for (final highlight in _highlights) {
+      final indicePagina = highlight.page - 1;
+      if (indicePagina < 0 || indicePagina >= _controller.pages.length) {
+        continue;
+      }
+
+      final pageRect = _controller.layout.pageLayouts[indicePagina];
+      if (!pageRect.contains(posicaoNoDocumento)) continue;
+
+      final page = _controller.pages[indicePagina];
+      for (final rect in highlight.rects) {
+        final area = _retanguloNoDocumento(
+          rect,
+          page,
+          pageRect,
+        ).inflate(margem);
+        if (area.contains(posicaoNoDocumento)) return highlight;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _apagarHighlight(Highlight highlight) async {
+    final highlightSyncService = widget.highlightSyncService;
+    if (highlightSyncService == null) return;
+
+    setState(
+      () => _highlights = _highlights
+          .where((h) => h.localId != highlight.localId)
+          .toList(),
+    );
+    await highlightSyncService.apagar(hash: widget.hash, highlight: highlight);
+  }
+
   @override
   Widget build(BuildContext context) {
     final nomeDocumento = p.basename(widget.caminhoDocumento);
@@ -201,6 +378,9 @@ class _DocumentoViewerScreenState extends State<DocumentoViewerScreen>
         params: PdfViewerParams(
           textSelectionParams: const PdfTextSelectionParams(enabled: true),
           onViewerReady: _aoFicarPronto,
+          pagePaintCallbacks: [_pintarHighlights],
+          customizeContextMenuItems: _personalizarMenuContexto,
+          onGeneralTap: _aoTocarNoVisualizador,
         ),
       ),
     );
