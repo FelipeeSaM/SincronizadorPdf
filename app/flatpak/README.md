@@ -8,15 +8,16 @@ Manifesto e pipeline que produzem um pacote Flatpak instalável do app desktop, 
 ./build.sh
 ```
 
-Isso roda `flutter build linux --release` e em seguida `flatpak run org.flatpak.Builder -- --user --install --force-clean` usando `com.felipesam.sincronizador_pdf.yml`. Ao final, o pacote fica instalado para o usuário atual (`flatpak run com.felipesam.sincronizador_pdf`).
+Isso roda `flutter build linux --release` dentro do toolbox `sincronizador-pdf-build` (necessário em sistemas imutáveis como Bazzite, que não tem `cmake`/`gtk3-devel` no host) e em seguida `flatpak run org.flatpak.Builder -- --user --install --force-clean` no host, usando `com.felipesam.sincronizador_pdf.yml`. Ao final, o pacote fica instalado para o usuário atual (`flatpak run com.felipesam.sincronizador_pdf`).
 
-Dependências de build (fora do sandbox do Flatpak, usadas só para compilar): `cmake`, `ninja`, `gtk3-devel`, um compilador C/C++, e o runtime/SDK Flatpak `org.gnome.Platform`/`org.gnome.Sdk` (branch `49`) + `org.flatpak.Builder`, instaláveis via:
+Dependências de build:
+
+- No toolbox `sincronizador-pdf-build`: `cmake`, `ninja`, `gtk3-devel`, um compilador C/C++.
+- No host: runtime/SDK Flatpak `org.gnome.Platform`/`org.gnome.Sdk` (branch `49`) + `org.flatpak.Builder`, instaláveis via:
 
 ```sh
 flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//49
 ```
-
-Em sistemas imutáveis (ex: Bazzite), rode a etapa de `flutter build linux` dentro de um `toolbox`/`distrobox` com `cmake ninja-build gtk3-devel pkgconf-pkg-config clang` instalados, para não precisar de `rpm-ostree install` + reboot.
 
 ## Validado até agora
 

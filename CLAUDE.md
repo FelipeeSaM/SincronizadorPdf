@@ -1,3 +1,7 @@
+## Idioma
+
+Responda sempre em português do Brasil, independentemente do idioma usado na mensagem do usuário.
+
 ## Agent skills
 
 ### Issue tracker

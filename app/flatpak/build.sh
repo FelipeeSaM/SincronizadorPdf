@@ -6,7 +6,7 @@ app_dir="$(dirname "$script_dir")"
 manifest="$script_dir/com.felipesam.sincronizador_pdf.yml"
 build_dir="$script_dir/.flatpak-builder-build"
 
-(cd "$app_dir" && flutter build linux --release)
+(cd "$app_dir" && toolbox run -c sincronizador-pdf-build flutter build linux --release)
 
 flatpak run org.flatpak.Builder \
   --user \
