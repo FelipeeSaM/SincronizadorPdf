@@ -6,6 +6,11 @@
          para a comunicação das ferramentas de desenvolvimento, mas builds de
          release não têm isso, então precisa estar declarada aqui. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Necessárias para a busca mDNS do Backend de Sincronização na rede
+         local no Pareamento inicial (ver #27, #28) — sem elas o Android não
+         entrega os pacotes multicast recebidos ao app. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <application
         android:label="sincronizador_pdf"
         android:name="${applicationName}"
