@@ -210,9 +210,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Abre a tela de Pareamento e, ao voltar, recarrega o Dispositivo
-  /// pareado — não basta o valor lido em [_inicializarSincronizacao], já
-  /// que o app pode ter sido aberto antes do Pareamento ser confirmado
-  /// (ver #15).
+  /// pareado e reinicializa a sincronização — não basta o valor lido em
+  /// [_inicializarSincronizacao], já que o app pode ter sido aberto antes
+  /// do Backend ser configurado ou do Pareamento ser confirmado (ver #15):
+  /// nesse caso [_syncService] também ainda não existia.
   Future<void> _abrirPareamento() async {
     await Navigator.of(
       context,
@@ -221,6 +222,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final dispositivoPareadoId = await _pairedDeviceStore.obter();
     if (!mounted) return;
     setState(() => _dispositivoPareadoId = dispositivoPareadoId);
+
+    if (_syncService == null) {
+      await _inicializarSincronizacao();
+    }
   }
 
   /// Remove o Documento [hash] da Biblioteca (ver #20), lendo [_syncService]
