@@ -40,6 +40,13 @@ if (portaLan is { } porta)
     builder.WebHost.UseUrls($"http://0.0.0.0:{porta}");
 }
 
+// Id deste PC (ver #25), repassado pelo app desktop via env var porque é
+// lá que o `DeviceIdStore` vive — sem ele não há como o celular desambiguar
+// entre múltiplos backends SincronizadorPdf na mesma rede, então o anúncio
+// mDNS fica desativado (mesma tolerância a configuração ausente que o
+// resto do modo LAN já tem).
+var deviceId = Environment.GetEnvironmentVariable("SINCRONIZADOR_PDF_DEVICE_ID");
+
 var app = builder.Build();
 
 // Migrate() em vez de EnsureCreated(): aplica o schema via migrations
@@ -73,6 +80,10 @@ if (portaLan is { } portaEfetiva)
     // chegar antes do bind acontecer. O try/finally com DisposeAsync abaixo
     // replica o que Run()/RunAsync() fazem por baixo dos panos, já que
     // chamar StartAsync/WaitForShutdownAsync direto pula esse descarte.
+    // Só é criado depois de StartAsync, com a porta já efetiva (ver #25):
+    // anunciar a porta padrão fixa seria errado sempre que ela estivesse
+    // ocupada e o LanModePortSelector tivesse escolhido outra.
+    MdnsAnnouncer? mdnsAnnouncer = null;
     try
     {
         await app.StartAsync();
@@ -84,10 +95,28 @@ if (portaLan is { } portaEfetiva)
         Console.WriteLine($"SINCRONIZADOR_PDF_PORT={portaEfetiva}");
         Console.Out.Flush();
 
+        if (deviceId is { Length: > 0 })
+        {
+            try
+            {
+                mdnsAnnouncer = new MdnsAnnouncer(portaEfetiva, deviceId);
+            }
+            catch (Exception ex)
+            {
+                // O anúncio mDNS é só uma conveniência de descoberta (ver
+                // #25) — se a rede não suportar multicast (ex: sem
+                // interface ativa, sandboxing), o Backend continua
+                // funcionando normalmente por HTTP direto, só sem anúncio
+                // automático, em vez de derrubar o processo inteiro.
+                Console.Error.WriteLine($"Falha ao iniciar o anúncio mDNS: {ex}");
+            }
+        }
+
         await app.WaitForShutdownAsync();
     }
     finally
     {
+        mdnsAnnouncer?.Dispose();
         await app.DisposeAsync();
     }
 }

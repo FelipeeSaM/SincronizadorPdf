@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'home_screen.dart';
 import 'sync/backend_dll_resolver.dart';
 import 'sync/backend_process_manager.dart';
+import 'sync/device_id_store.dart';
 import 'theme_mode_store.dart';
 
 // Mantidos em variáveis top-level (não locais a `main()`) para que o
@@ -20,7 +21,7 @@ AppLifecycleListener? _backendLifecycleListener;
 
 void main() {
   if (Platform.isLinux) {
-    _iniciarBackendLocal();
+    unawaited(_iniciarBackendLocal());
   }
 
   runApp(const SincronizadorPdfApp());
@@ -30,17 +31,25 @@ void main() {
 /// (Linux) e garante que ele morre junto quando o app fecha — trade-off
 /// aceito em #24: sem esse Backend local, o app continua funcionando
 /// normalmente, só sem o processo próprio (ex: layout de dev incompleto).
-void _iniciarBackendLocal() {
+Future<void> _iniciarBackendLocal() async {
   final caminhoDll = resolverCaminhoBackendDll(
     environment: Platform.environment,
     diretorioAtual: Directory.current,
   );
   if (caminhoDll == null) return;
 
+  // Repassado ao Backend para o TXT record do anúncio mDNS (ver #25) — é
+  // isso que permite ao celular desambiguar entre múltiplos backends
+  // SincronizadorPdf na mesma rede.
+  final dispositivoId = await const DeviceIdStore().obterOuCriar();
+
   final backendProcessManager = BackendProcessManager(
     executavel: 'dotnet',
     argumentos: [caminhoDll],
-    environment: const {'SINCRONIZADOR_PDF_LAN_MODE': '1'},
+    environment: {
+      'SINCRONIZADOR_PDF_LAN_MODE': '1',
+      'SINCRONIZADOR_PDF_DEVICE_ID': dispositivoId,
+    },
     // Sem isto, o Backend herdaria o diretório de trabalho do app desktop
     // e espalharia os bancos SQLite (ContentRootPath) num lugar
     // imprevisível — ver #24.
