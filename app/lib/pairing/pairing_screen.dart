@@ -135,9 +135,7 @@ class _PairingScreenState extends State<PairingScreen> {
                     hintText: 'https://meu-backend.exemplo.com',
                   ),
                   keyboardType: TextInputType.url,
-                  validator: (valor) => (valor == null || valor.trim().isEmpty)
-                      ? 'Informe o endereço do Backend'
-                      : null,
+                  validator: validarUrlBackendObrigatoria,
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(

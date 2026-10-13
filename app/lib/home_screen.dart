@@ -23,6 +23,7 @@ import 'sync/highlight_sync_service.dart';
 import 'sync/http_highlight_client.dart';
 import 'sync/http_reading_position_client.dart';
 import 'sync/http_transfer_client.dart';
+import 'sync/mdns_paired_backend_locator.dart';
 import 'sync/paired_device_store.dart';
 import 'sync/posicao_leitura_store.dart';
 import 'sync/reading_position_sync_service.dart';
@@ -45,6 +46,7 @@ class HomeScreen extends StatefulWidget {
     required this.temaAtual,
     required this.onSelecionarTema,
     this.enderecoBackendLocal,
+    this.mdnsPairedBackendLocator,
   });
 
   final ThemeMode temaAtual;
@@ -55,6 +57,10 @@ class HomeScreen extends StatefulWidget {
   /// volta no endereço salvo manualmente via [BackendUrlStore] (ver #26).
   final Future<String?>? enderecoBackendLocal;
 
+  /// Permite injetar um fake nos testes — `null` em produção, quando
+  /// [_HomeScreenState] usa a implementação real.
+  final MdnsPairedBackendLocator? mdnsPairedBackendLocator;
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -64,10 +70,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _deviceIdStore = const DeviceIdStore();
   final _backendUrlStore = const BackendUrlStore();
   final _pairedDeviceStore = const PairedDeviceStore();
+  late final _mdnsPairedBackendLocator =
+      widget.mdnsPairedBackendLocator ?? MdnsPairedBackendLocator();
+
+  static bool get _ehDispositivoMovel => Platform.isAndroid || Platform.isIOS;
 
   DocumentSyncService? _syncService;
   ReadingPositionSyncService? _posicaoLeituraSyncService;
   HighlightSyncService? _highlightSyncService;
+  String? _dispositivoId;
   String? _dispositivoPareadoId;
   Timer? _timerSincronizacao;
   bool _arrastandoArquivo = false;
@@ -91,11 +102,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // A Fila Local de Sincronização só tenta esvaziar com o app em foco,
     // sem serviço de sincronização em segundo plano (ver ADR-0005).
     if (state == AppLifecycleState.resumed) {
-      unawaited(_syncService?.sincronizar());
-      _iniciarSincronizacaoPeriodica();
+      unawaited(_aoRetomarFoco());
     } else {
       _pararSincronizacaoPeriodica();
     }
+  }
+
+  /// No celular, repete a descoberta mDNS a cada vez que o app volta ao
+  /// foco (ver #28): é exatamente esse o momento do cenário de uso — o
+  /// usuário sai de casa com o app em segundo plano e volta depois, sem
+  /// reabri-lo do zero — em que o endereço do Backend pode ter mudado (ex:
+  /// o PC entrou numa rede diferente) desde a última sincronização.
+  ///
+  /// `_iniciarSincronizacaoPeriodica` só é chamado ao final, depois da
+  /// busca mDNS (em vez de direto em `didChangeAppLifecycleState`): como
+  /// ela é assíncrona, chamá-lo antes dela terminar veria `_syncService`
+  /// ainda `null` sempre que o app reabre sem Backend configurado, e o
+  /// timer nunca seria iniciado nessa sessão em foco.
+  Future<void> _aoRetomarFoco() async {
+    final dispositivoId = _dispositivoId;
+    final dispositivoPareadoId = _dispositivoPareadoId;
+    if (_ehDispositivoMovel && dispositivoId != null && dispositivoPareadoId != null) {
+      final backendUrl = await _descobrirBackendViaMdns(dispositivoPareadoId);
+      if (backendUrl != null) {
+        _configurarServicosSincronizacao(backendUrl, dispositivoId);
+      }
+    }
+    await _syncService?.sincronizar();
+    _iniciarSincronizacaoPeriodica();
   }
 
   Future<void> _inicializarSincronizacao() async {
@@ -108,11 +142,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final dispositivoId = await dispositivoIdFuture;
     final enderecoBackendLocal = await widget.enderecoBackendLocal;
-    final backendUrl = enderecoBackendLocal ?? await _backendUrlStore.obter();
     final dispositivoPareadoId = await dispositivoPareadoIdFuture;
 
     if (!mounted) return;
+    _dispositivoId = dispositivoId;
     _dispositivoPareadoId = dispositivoPareadoId;
+
+    // No celular, a descoberta mDNS roda a cada abertura do app (ver #28)
+    // e tem prioridade sobre o endereço salvo da última vez — o Backend
+    // pode ter mudado de endereço desde então (ex: o PC voltou a uma rede
+    // diferente) — mas só faz sentido com um Dispositivo já pareado, já
+    // que ela filtra pelo `dispositivoId` dele.
+    var backendUrl = enderecoBackendLocal;
+    if (backendUrl == null && _ehDispositivoMovel && dispositivoPareadoId != null) {
+      backendUrl = await _descobrirBackendViaMdns(dispositivoPareadoId);
+    }
+    backendUrl ??= await _backendUrlStore.obter();
+
+    if (!mounted) return;
 
     if (backendUrl == null) {
       // Sem Backend configurado ainda: Documentos abrem e ficam na
@@ -120,6 +167,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    _configurarServicosSincronizacao(backendUrl, dispositivoId);
+
+    unawaited(_syncService!.sincronizar());
+    _iniciarSincronizacaoPeriodica();
+  }
+
+  /// Busca o Backend anunciado via mDNS pelo Dispositivo pareado
+  /// [dispositivoPareadoId] e, se encontrado, atualiza o endereço salvo em
+  /// [_backendUrlStore] (ver #28). Nunca lança: se a busca não encontrar
+  /// nada (app fora da rede do Backend) ou falhar por algum outro motivo
+  /// (ex: multicast bloqueado), segue offline normalmente, sem bloquear a
+  /// abertura do app — a tela manual de URL continua disponível como
+  /// fallback explícito em [PairingScreen].
+  Future<String?> _descobrirBackendViaMdns(String dispositivoPareadoId) async {
+    try {
+      final backendUrl = await _mdnsPairedBackendLocator.localizar(dispositivoPareadoId);
+      if (backendUrl != null) {
+        await _backendUrlStore.salvar(backendUrl);
+      }
+      return backendUrl;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _configurarServicosSincronizacao(String backendUrl, String dispositivoId) {
     _syncService = DocumentSyncService(
       transferClient: HttpTransferClient(baseUrl: backendUrl),
       bibliotecaStore: _bibliotecaStore,
@@ -136,17 +209,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       store: HighlightStore(),
       fila: FilaHighlights(),
     );
-
-    unawaited(_syncService!.sincronizar());
-    _iniciarSincronizacaoPeriodica();
   }
 
   void _iniciarSincronizacaoPeriodica() {
-    final syncService = _syncService;
-    if (syncService == null || _timerSincronizacao != null) return;
+    if (_syncService == null || _timerSincronizacao != null) return;
+    // Lê `_syncService` de novo a cada tick (em vez de capturar uma
+    // referência fixa aqui) porque ele pode ser substituído por
+    // `_configurarServicosSincronizacao` depois que o timer já está
+    // rodando — ex: o endereço do Backend muda ao descobrir via mDNS no
+    // retorno de foco (ver #28) ou ao salvar um novo endereço manual.
     _timerSincronizacao = Timer.periodic(
       _intervaloSincronizacao,
-      (_) => syncService.sincronizar(),
+      (_) => _syncService?.sincronizar(),
     );
   }
 
@@ -287,6 +361,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Permite configurar manualmente o endereço do Backend no celular — o
+  /// fallback explícito para quando a descoberta mDNS falha
+  /// persistentemente (ex: rede com isolamento de cliente, multicast
+  /// bloqueado), já que nesse caso o celular nunca teria outra forma de
+  /// obter o endereço (ver #28).
+  Future<void> _abrirConfiguracaoBackendManual() async {
+    final urlSalva = await _backendUrlStore.obter();
+    if (!mounted) return;
+
+    final formKey = GlobalKey<FormState>();
+    final controller = TextEditingController(text: urlSalva ?? '');
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Backend manual'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'http://192.168.1.10:5119',
+            ),
+            keyboardType: TextInputType.url,
+            validator: validarUrlBackendObrigatoria,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.of(context).pop(true);
+            },
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+
+    final url = controller.text.trim();
+    controller.dispose();
+    if (confirmado != true) return;
+
+    await _backendUrlStore.salvar(url);
+    if (!mounted) return;
+
+    final dispositivoId = _dispositivoId ?? await _deviceIdStore.obterOuCriar();
+    if (!mounted) return;
+    _dispositivoId = dispositivoId;
+    _configurarServicosSincronizacao(url, dispositivoId);
+    unawaited(_syncService!.sincronizar());
+    _iniciarSincronizacaoPeriodica();
+  }
+
   void _abrirBiblioteca() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -338,6 +471,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: const Icon(Icons.qr_code),
                   label: const Text('Parear Dispositivo'),
                 ),
+                if (_ehDispositivoMovel) ...[
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _abrirConfiguracaoBackendManual,
+                    icon: const Icon(Icons.dns),
+                    label: const Text('Backend manual'),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: _abrirSeletorTema,
