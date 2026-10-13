@@ -38,9 +38,24 @@ Há duas formas de instalar:
    ```
    Requer as bibliotecas GTK3 no sistema (já presentes na maioria das distros desktop).
 
-**Opção B — pacote Flatpak (integra com o menu de apps, sandboxed):**
+**Opção B — pacote Flatpak (recomendado: integra com o menu de apps, sandboxed):**
 
-Ainda não publicamos um `.flatpak` pronto na release; para gerar um localmente a partir do código-fonte, veja [`app/flatpak/README.md`](app/flatpak/README.md).
+1. Garanta que o `flatpak` está instalado ([flatpak.org/setup](https://flatpak.org/setup/)) e que o remoto Flathub existe:
+   ```sh
+   flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+   ```
+2. Baixe o `sincronizador_pdf-vX.Y.Z-linux-x64.flatpak` da release.
+3. Instale o bundle:
+   ```sh
+   flatpak install --user sincronizador_pdf-vX.Y.Z-linux-x64.flatpak
+   ```
+   (Isso também instala automaticamente o runtime `org.gnome.Platform//49` do Flathub, se ainda não estiver presente.)
+4. Abra pelo menu de aplicativos ou via:
+   ```sh
+   flatpak run com.felipesam.sincronizador_pdf
+   ```
+
+Para gerar esse `.flatpak` você mesmo a partir do código-fonte, veja [`app/flatpak/README.md`](app/flatpak/README.md).
 
 ## Configurando o Backend de Sincronização
 
