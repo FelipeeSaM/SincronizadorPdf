@@ -25,7 +25,7 @@ O envio de um Documento de um Dispositivo para o outro através do Backend de Si
 _Avoid_: upload, sync de arquivo
 
 **Backend de Sincronização**:
-Serviço auto-hospedado, acessado pela internet, com duas responsabilidades distintas: (1) atua como **relay** dos bytes do Documento, guardando-os numa fila temporária só até o Dispositivo de destino confirmar o recebimento completo — nunca mantém cópia permanente do arquivo; (2) persiste permanentemente a Posição de Leitura e os Highlights de cada Documento, por serem dados pequenos.
+Serviço auto-hospedado que roda como processo de vida curta do app desktop (só existe enquanto esse app está aberto) e é descoberto automaticamente pelos Dispositivos pareados via mDNS na rede local, com fallback de URL manual quando a descoberta não se aplica (ver ADR-0007). Tem duas responsabilidades distintas: (1) atua como **relay** dos bytes do Documento, guardando-os numa fila temporária só até o Dispositivo de destino confirmar o recebimento completo — nunca mantém cópia permanente do arquivo; (2) persiste permanentemente a Posição de Leitura e os Highlights de cada Documento, por serem dados pequenos.
 _Avoid_: servidor, API, storage central (storage central só se aplica à Posição de Leitura e Highlights, não ao arquivo)
 
 **Pareamento**:
