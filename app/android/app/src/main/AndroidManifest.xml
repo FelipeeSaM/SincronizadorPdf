@@ -1,10 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Necessária para escanear o QR code de Pareamento pela câmera. -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Necessária para falar com o Backend de Sincronização — em debug, o
+         Flutter injeta essa mesma permissão via src/debug/AndroidManifest.xml
+         para a comunicação das ferramentas de desenvolvimento, mas builds de
+         release não têm isso, então precisa estar declarada aqui. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="sincronizador_pdf"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
