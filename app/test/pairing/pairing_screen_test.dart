@@ -15,4 +15,17 @@ void main() {
     expect(find.text('Endereço do Backend de Sincronização'), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, 'Continuar'), findsOneWidget);
   });
+
+  testWidgets('com Backend local disponível, pula a tela manual de endereço', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PairingScreen(
+          enderecoBackendLocal: Future.value('http://localhost:5119'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Endereço do Backend de Sincronização'), findsNothing);
+  });
 }

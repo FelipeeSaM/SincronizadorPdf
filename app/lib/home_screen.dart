@@ -44,10 +44,16 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.temaAtual,
     required this.onSelecionarTema,
+    this.enderecoBackendLocal,
   });
 
   final ThemeMode temaAtual;
   final ValueChanged<ThemeMode> onSelecionarTema;
+
+  /// `http://localhost:<porta>` do Backend local (ver #24), ou `null` em
+  /// plataformas sem Backend local ou se ele não iniciou — nesse caso cai de
+  /// volta no endereço salvo manualmente via [BackendUrlStore] (ver #26).
+  final Future<String?>? enderecoBackendLocal;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -93,9 +99,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _inicializarSincronizacao() async {
-    final dispositivoId = await _deviceIdStore.obterOuCriar();
-    final backendUrl = await _backendUrlStore.obter();
-    final dispositivoPareadoId = await _pairedDeviceStore.obter();
+    // Disparados antes de aguardar o endereço do Backend — que, no PC, pode
+    // demorar até o timeout do `BackendProcessManager` (10s) se o Backend
+    // local estiver lento para subir (ver #24) — para não atrasar também
+    // essas duas leituras locais independentes.
+    final dispositivoIdFuture = _deviceIdStore.obterOuCriar();
+    final dispositivoPareadoIdFuture = _pairedDeviceStore.obter();
+
+    final dispositivoId = await dispositivoIdFuture;
+    final enderecoBackendLocal = await widget.enderecoBackendLocal;
+    final backendUrl = enderecoBackendLocal ?? await _backendUrlStore.obter();
+    final dispositivoPareadoId = await dispositivoPareadoIdFuture;
 
     if (!mounted) return;
     _dispositivoPareadoId = dispositivoPareadoId;
@@ -215,9 +229,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// do Backend ser configurado ou do Pareamento ser confirmado (ver #15):
   /// nesse caso [_syncService] também ainda não existia.
   Future<void> _abrirPareamento() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const PairingScreen()));
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            PairingScreen(enderecoBackendLocal: widget.enderecoBackendLocal),
+      ),
+    );
 
     final dispositivoPareadoId = await _pairedDeviceStore.obter();
     if (!mounted) return;

@@ -11,11 +11,18 @@ import 'pairing_scan_screen.dart';
 /// Tela de Pareamento: no PC (desktop), gera e exibe um QR code; no celular
 /// (Android), escaneia esse QR e confirma o Pareamento.
 ///
-/// Antes de falar com o Backend de Sincronização, pede o endereço onde ele
-/// está hospedado — não há descoberta automática, pois é auto-hospedado
-/// (ver ADR-0003).
+/// Quando há um Backend local disponível (ver #24), usa
+/// `http://localhost:<porta>` automaticamente e pula a tela manual de
+/// endereço. Sem ele (ex: celular, ou o Backend local não iniciou), pede o
+/// endereço onde o Backend está hospedado como fallback — não há descoberta
+/// automática de um Backend remoto, pois é auto-hospedado (ver ADR-0003,
+/// #26).
 class PairingScreen extends StatefulWidget {
-  const PairingScreen({super.key});
+  const PairingScreen({super.key, this.enderecoBackendLocal});
+
+  /// `http://localhost:<porta>` do Backend local (ver #24), ou `null` em
+  /// plataformas sem Backend local ou se ele não iniciou.
+  final Future<String?>? enderecoBackendLocal;
 
   @override
   State<PairingScreen> createState() => _PairingScreenState();
@@ -43,7 +50,26 @@ class _PairingScreenState extends State<PairingScreen> {
   }
 
   Future<void> _carregarEstadoInicial() async {
-    final dispositivoId = await _deviceIdStore.obterOuCriar();
+    // Disparado antes de aguardar o endereço do Backend — que, no PC, pode
+    // demorar até o timeout do `BackendProcessManager` (10s) se o Backend
+    // local estiver lento para subir (ver #24) — para não atrasar também
+    // essa leitura local independente.
+    final dispositivoIdFuture = _deviceIdStore.obterOuCriar();
+    final enderecoBackendLocal = await widget.enderecoBackendLocal;
+    final dispositivoId = await dispositivoIdFuture;
+
+    if (enderecoBackendLocal != null) {
+      // Backend local disponível: pula a tela manual de endereço — só faz
+      // sentido pedi-lo quando não há Backend próprio rodando (ver #26).
+      if (!mounted) return;
+      setState(() {
+        _dispositivoId = dispositivoId;
+        _urlController.text = enderecoBackendLocal;
+        _urlConfirmada = true;
+      });
+      return;
+    }
+
     final urlSalva = await _backendUrlStore.obter();
 
     if (!mounted) return;
