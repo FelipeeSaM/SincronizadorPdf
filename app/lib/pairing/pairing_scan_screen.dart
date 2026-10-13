@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../sync/mdns_pairing_client.dart';
 import '../sync/paired_device_store.dart';
 import '../sync/pairing_client.dart';
 
 enum _EstadoTela { escaneando, confirmando, confirmado }
 
 /// Tela exibida no celular: usa a câmera para escanear o QR code de
-/// Pareamento exibido no PC e confirma o Pareamento junto ao Backend.
+/// Pareamento exibido no PC e confirma o Pareamento, descobrindo o
+/// endereço do Backend via mDNS na rede local (ver #27) — sem pedir
+/// endereço manual nesta etapa.
 class PairingScanScreen extends StatefulWidget {
   const PairingScanScreen({
     super.key,
-    required this.pairingClient,
     required this.dispositivoId,
+    this.mdnsPairingClient,
   });
 
-  final PairingClient pairingClient;
   final String dispositivoId;
+
+  /// Permite injetar um fake nos testes — `null` em produção, quando
+  /// [_PairingScanScreenState] usa a implementação real.
+  final MdnsPairingClient? mdnsPairingClient;
 
   @override
   State<PairingScanScreen> createState() => _PairingScanScreenState();
@@ -24,10 +30,17 @@ class PairingScanScreen extends StatefulWidget {
 
 class _PairingScanScreenState extends State<PairingScanScreen> {
   final _pairedDeviceStore = const PairedDeviceStore();
+  late final _mdnsPairingClient = widget.mdnsPairingClient ?? MdnsPairingClient();
 
   _EstadoTela _estado = _EstadoTela.escaneando;
   String? _mensagemErro;
   bool _processandoDeteccao = false;
+
+  @override
+  void dispose() {
+    _mdnsPairingClient.dispose();
+    super.dispose();
+  }
 
   Future<void> _aoDetectar(BarcodeCapture captura) async {
     if (_processandoDeteccao) return;
@@ -43,13 +56,18 @@ class _PairingScanScreenState extends State<PairingScanScreen> {
     });
 
     try {
-      final resultado = await widget.pairingClient.confirmarCodigo(
+      final resultado = await _mdnsPairingClient.confirmarCodigo(
         codigo,
         widget.dispositivoId,
       );
       await _pairedDeviceStore.salvar(resultado.outroDispositivoId);
       if (!mounted) return;
       setState(() => _estado = _EstadoTela.confirmado);
+    } on NenhumBackendMdnsEncontrado {
+      _voltarParaEscanearComErro(
+        'Nenhum Backend encontrado na rede. Verifique se o PC está ligado, '
+        'com o app aberto, e na mesma rede Wi-Fi.',
+      );
     } on CodigoPareamentoNaoEncontrado {
       _voltarParaEscanearComErro('QR code inválido. Tente escanear novamente.');
     } on CodigoPareamentoInvalido {

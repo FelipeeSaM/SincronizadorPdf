@@ -9,12 +9,14 @@ import 'pairing_code_screen.dart';
 import 'pairing_scan_screen.dart';
 
 /// Tela de Pareamento: no PC (desktop), gera e exibe um QR code; no celular
-/// (Android), escaneia esse QR e confirma o Pareamento.
+/// (Android), escaneia esse QR e confirma o Pareamento descobrindo o
+/// Backend via mDNS na rede local (ver #27) — sem pedir endereço manual
+/// nesse caso.
 ///
-/// Quando há um Backend local disponível (ver #24), usa
+/// No PC, quando há um Backend local disponível (ver #24), usa
 /// `http://localhost:<porta>` automaticamente e pula a tela manual de
-/// endereço. Sem ele (ex: celular, ou o Backend local não iniciou), pede o
-/// endereço onde o Backend está hospedado como fallback — não há descoberta
+/// endereço. Sem ele (ex: o Backend local não iniciou), pede o endereço
+/// onde o Backend está hospedado como fallback — não há descoberta
 /// automática de um Backend remoto, pois é auto-hospedado (ver ADR-0003,
 /// #26).
 class PairingScreen extends StatefulWidget {
@@ -37,6 +39,8 @@ class _PairingScreenState extends State<PairingScreen> {
   String? _dispositivoId;
   bool _urlConfirmada = false;
 
+  static bool get _ehDispositivoMovel => Platform.isAndroid || Platform.isIOS;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +59,17 @@ class _PairingScreenState extends State<PairingScreen> {
     // local estiver lento para subir (ver #24) — para não atrasar também
     // essa leitura local independente.
     final dispositivoIdFuture = _deviceIdStore.obterOuCriar();
+
+    if (_ehDispositivoMovel) {
+      // No celular, o endereço do Backend é descoberto via mDNS a cada
+      // Pareamento (ver #27) — não há URL manual nem guardada para pedir
+      // aqui.
+      final dispositivoId = await dispositivoIdFuture;
+      if (!mounted) return;
+      setState(() => _dispositivoId = dispositivoId);
+      return;
+    }
+
     final enderecoBackendLocal = await widget.enderecoBackendLocal;
     final dispositivoId = await dispositivoIdFuture;
 
@@ -97,6 +112,10 @@ class _PairingScreenState extends State<PairingScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    if (_ehDispositivoMovel) {
+      return PairingScanScreen(dispositivoId: dispositivoId);
+    }
+
     if (!_urlConfirmada) {
       return Scaffold(
         appBar: AppBar(title: const Text('Parear Dispositivo')),
@@ -135,16 +154,10 @@ class _PairingScreenState extends State<PairingScreen> {
     final pairingClient = HttpPairingClient(
       baseUrl: _urlController.text.trim(),
     );
-    final ehDispositivoMovel = Platform.isAndroid || Platform.isIOS;
 
-    return ehDispositivoMovel
-        ? PairingScanScreen(
-            pairingClient: pairingClient,
-            dispositivoId: dispositivoId,
-          )
-        : PairingCodeScreen(
-            pairingClient: pairingClient,
-            dispositivoId: dispositivoId,
-          );
+    return PairingCodeScreen(
+      pairingClient: pairingClient,
+      dispositivoId: dispositivoId,
+    );
   }
 }
