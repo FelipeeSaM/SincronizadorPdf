@@ -1,15 +1,15 @@
 # Sincronizador PDF
 
-App Flutter pessoal que substitui o leitor de PDF no PC e no celular, mantendo a posição de leitura e os highlights sincronizados entre os dois dispositivos através de um Backend auto-hospedado.
+App Flutter pessoal que substitui o leitor de PDF no PC e no celular, mantendo a posição de leitura e os highlights sincronizados entre os dois dispositivos — sem configuração manual, enquanto os dois estiverem na mesma rede local.
 
 ## Como funciona
 
 - **Documento**: o PDF é transferido de verdade entre os dois dispositivos (não fica só uma referência) — cada lado guarda uma cópia completa.
-- **Pareamento**: feito uma única vez, via QR Code exibido no PC e escaneado pelo celular.
-- **Backend de Sincronização**: serviço que você mesmo hospeda. Ele só retransmite os bytes do Documento (fila temporária até o outro lado confirmar o recebimento) e guarda permanentemente apenas dados pequenos: posição de leitura e highlights.
+- **Pareamento**: feito uma única vez, via QR Code exibido no PC e escaneado pelo celular — o celular descobre o Backend automaticamente na rede local (mDNS), sem precisar digitar nenhum endereço.
+- **Backend de Sincronização**: sobe e desce junto com o app desktop (nasce quando você abre o app no PC, morre quando você fecha) — não é um serviço que fica rodando o tempo todo. Ele só retransmite os bytes do Documento (fila temporária até o outro lado confirmar o recebimento) e guarda permanentemente apenas dados pequenos: posição de leitura e highlights.
 - **Sincronização automática**: enquanto o app está em foco, a posição de leitura e os highlights são enviados/recebidos a cada poucos segundos. Não há sincronização em segundo plano com o app fechado.
 
-Para o glossário completo dos termos do domínio, veja [`CONTEXT.md`](CONTEXT.md). Decisões de arquitetura estão em [`docs/adr/`](docs/adr/).
+Para o glossário completo dos termos do domínio, veja [`CONTEXT.md`](CONTEXT.md). Decisões de arquitetura estão em [`docs/adr/`](docs/adr/), em especial a [ADR-0003](docs/adr/0003-backend-relay-sem-storage-permanente.md) (Backend sem storage permanente) e a [ADR-0007](docs/adr/0007-descoberta-mdns-na-rede-local.md) (descoberta mDNS na rede local).
 
 ## Instalação (uso no dia a dia)
 
@@ -57,43 +57,43 @@ Há duas formas de instalar:
 
 Para gerar esse `.flatpak` você mesmo a partir do código-fonte, veja [`app/flatpak/README.md`](app/flatpak/README.md).
 
-## Configurando o Backend de Sincronização
+## O Backend de Sincronização (não precisa configurar nada)
 
-O Backend não tem build pronto para baixar — cada pessoa hospeda a própria instância (ver [ADR-0003](docs/adr/0003-backend-relay-sem-storage-permanente.md)). É um serviço ASP.NET Core (.NET 10) simples, sem dependências externas (usa SQLite em arquivo).
+O Backend vem **embutido no próprio app desktop** (Flatpak ou zip, ver #31): ao abrir o app no PC, ele já sobe o Backend localmente, numa porta livre, e o anuncia na rede local via mDNS/DNS-SD. Você não precisa instalar nem rodar nada à parte — nem o `.NET SDK` — para o uso normal com PC e celular na mesma rede doméstica.
 
-### Pré-requisitos
+O Backend nunca guarda cópia permanente dos seus Documentos (ver [ADR-0003](docs/adr/0003-backend-relay-sem-storage-permanente.md)); só retransmite os bytes e persiste os dados pequenos (posição de leitura, highlights) em bancos SQLite dentro da mesma pasta de dados do app onde já ficam a Biblioteca e os Highlights (ex: `~/.local/share/<app>/backend/` fora do Flatpak, ou `~/.var/app/com.felipesam.sincronizador_pdf/data/<app>/backend/` dentro dele).
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download)
+### Limitação: só funciona com os dois dispositivos na mesma rede local
 
-### Rodando localmente (teste rápido)
+A descoberta automática usa mDNS, que não atravessa a internet nem redes diferentes (ver [ADR-0007](docs/adr/0007-descoberta-mdns-na-rede-local.md)). Isso cobre o caso de uso típico (PC e celular em casa, na mesma Wi-Fi), mas tem duas consequências:
+
+- O Backend só existe enquanto o app do PC estiver aberto — fechar o app o encerra.
+- Se o PC e o celular estiverem em redes diferentes (ex: celular fora de casa), a sincronização automática não encontra o Backend.
+
+### Avançado: rodando o Backend separadamente (dev, ou PC + celular em redes diferentes)
+
+Para quem está desenvolvendo o Backend, ou quer hospedá-lo separadamente (acessível pela internet, para sincronizar mesmo com os dispositivos em redes diferentes), ele também pode ser rodado à parte — é um serviço ASP.NET Core (.NET 10) simples, sem dependências externas:
 
 ```sh
 cd backend/src/SincronizadorPdf.Backend.Api
 dotnet run
 ```
 
-Por padrão sobe em `http://localhost:5119` (e `https://localhost:7062` no perfil `https`). Na primeira execução ele cria e migra automaticamente 4 bancos SQLite na pasta do projeto: `pareamento.db`, `transferencia.db`, `posicao-leitura.db` e `highlights.db`.
-
-### Hospedando para uso real (PC + celular em redes diferentes)
-
-Para o Pareamento funcionar entre os dois dispositivos, o Backend precisa estar acessível pela internet (ou pela mesma rede local) a partir de **ambos**. Algumas formas comuns:
+Por padrão sobe em `http://localhost:5119` (e `https://localhost:7062` no perfil `https`), fora do modo LAN (sem anúncio mDNS) — nesse caso, informe a URL manualmente na tela de Pareamento do app, nos dois dispositivos. Requer [.NET SDK 10](https://dotnet.microsoft.com/download). Algumas formas comuns de hospedar para acesso pela internet:
 
 - VPS própria com um reverse proxy (nginx/Caddy) fazendo TLS e repassando para a porta do `dotnet run`/publish.
-- Uma rede mesh como [Tailscale](https://tailscale.com/) entre os dois dispositivos, apontando para o IP interno do PC que roda o Backend.
+- Uma rede mesh como [Tailscale](https://tailscale.com/) entre os dois dispositivos, apontando para o IP interno de quem hospeda o Backend.
 - Um túnel temporário (ex: `ngrok`) para testes.
-
-Depois de hospedado, anote a URL pública (ex: `https://meu-backend.exemplo.com`) — é ela que você vai informar no app ao parear.
 
 ## Usando o app
 
 ### 1. Parear os dois dispositivos (uma única vez)
 
-1. Abra o app no PC e no celular.
-2. Em cada um, toque em **"Parear Dispositivo"**.
-3. Informe a URL do Backend de Sincronização (a mesma nos dois).
-4. No PC aparece um QR Code.
-5. No celular, a tela de Pareamento abre a câmera automaticamente — escaneie o QR do PC.
-6. Pareamento confirmado nos dois lados.
+1. Abra o app no PC — o Backend local sobe automaticamente e já aparece um QR Code na tela de **"Parear Dispositivo"**.
+2. No celular, toque em **"Parear Dispositivo"** e escaneie esse QR Code; a câmera abre automaticamente. O celular descobre o Backend sozinho na rede local — não pede endereço.
+3. Pareamento confirmado nos dois lados.
+
+Se o PC não tiver conseguido iniciar o Backend local (ex: rodando numa plataforma sem suporte, ou numa instalação antiga sem o Backend embutido), a tela do PC cai de volta no formulário manual de endereço — ver seção "Avançado" acima.
 
 ### 2. Abrir e transferir um Documento
 

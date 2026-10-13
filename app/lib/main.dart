@@ -3,12 +3,13 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'home_screen.dart';
-import 'sync/backend_dll_resolver.dart';
+import 'sync/backend_local_resolver.dart';
 import 'sync/backend_process_manager.dart';
 import 'sync/device_id_store.dart';
+import 'sync/diretorio_app.dart';
 import 'theme_mode_store.dart';
 
 // Mantidos em variáveis top-level (não locais a `main()`) para que o
@@ -43,28 +44,36 @@ Future<String?> _iniciarBackendLocal() async {
   // travaria a tela de Pareamento e pularia o fallback para o endereço salvo
   // manualmente em vez de simplesmente cair para `null`.
   try {
-    final caminhoDll = resolverCaminhoBackendDll(
+    final comando = resolverComandoBackendLocal(
       environment: Platform.environment,
       diretorioAtual: Directory.current,
+      caminhoExecutavelAtual: Platform.resolvedExecutable,
     );
-    if (caminhoDll == null) return null;
+    if (comando == null) return null;
 
     // Repassado ao Backend para o TXT record do anúncio mDNS (ver #25) — é
     // isso que permite ao celular desambiguar entre múltiplos backends
     // SincronizadorPdf na mesma rede.
     final dispositivoId = await const DeviceIdStore().obterOuCriar();
 
+    // Diretório gravável para os bancos SQLite do Backend (mesma convenção
+    // de `getApplicationSupportDirectory` usada pelos outros stores do app,
+    // ver `diretorio_app.dart`) — repassado via env var, não como
+    // `workingDirectory`, para não mudar de onde o ASP.NET Core carrega
+    // `appsettings.json` (ver #31): dentro do Flatpak, o executável
+    // empacotado em `backend/` é somente leitura, então os bancos não podem
+    // ficar ao lado dele.
+    final diretorioDados = await diretorioComSubpasta(getApplicationSupportDirectory, 'backend');
+
     final backendProcessManager = BackendProcessManager(
-      executavel: 'dotnet',
-      argumentos: [caminhoDll],
+      executavel: comando.executavel,
+      argumentos: comando.argumentos,
       environment: {
         'SINCRONIZADOR_PDF_LAN_MODE': '1',
         'SINCRONIZADOR_PDF_DEVICE_ID': dispositivoId,
+        'SINCRONIZADOR_PDF_DATA_DIR': diretorioDados.path,
       },
-      // Sem isto, o Backend herdaria o diretório de trabalho do app desktop
-      // e espalharia os bancos SQLite (ContentRootPath) num lugar
-      // imprevisível — ver #24.
-      workingDirectory: p.dirname(caminhoDll),
+      workingDirectory: comando.diretorioExecutavel,
     );
     _backendProcessManager = backendProcessManager;
 

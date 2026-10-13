@@ -9,23 +9,33 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton(TimeProvider.System);
 
+// Diretório onde os bancos SQLite são gravados — por padrão o
+// ContentRootPath (comportamento de sempre), mas sobrescrevível pelo app
+// desktop via env var quando o Backend roda como processo filho dele (ver
+// #31): o executável empacotado no Flatpak é somente leitura, então os
+// bancos precisam de um diretório separado e gravável, sem mudar de onde
+// o ASP.NET Core carrega `appsettings.json` (que continua ao lado do
+// executável, via ContentRootPath).
+var diretorioBancos = Environment.GetEnvironmentVariable("SINCRONIZADOR_PDF_DATA_DIR")
+    ?? builder.Environment.ContentRootPath;
+
 var pairingConnectionString = builder.Configuration.GetConnectionString("Pairing")
-    ?? $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "pareamento.db")}";
+    ?? $"Data Source={Path.Combine(diretorioBancos, "pareamento.db")}";
 builder.Services.AddDbContext<PairingDbContext>(options => options.UseSqlite(pairingConnectionString));
 builder.Services.AddScoped<PairingService>();
 
 var transferConnectionString = builder.Configuration.GetConnectionString("Transferencia")
-    ?? $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "transferencia.db")}";
+    ?? $"Data Source={Path.Combine(diretorioBancos, "transferencia.db")}";
 builder.Services.AddDbContext<TransferDbContext>(options => options.UseSqlite(transferConnectionString));
 builder.Services.AddScoped<TransferService>();
 
 var readingPositionConnectionString = builder.Configuration.GetConnectionString("PosicaoLeitura")
-    ?? $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "posicao-leitura.db")}";
+    ?? $"Data Source={Path.Combine(diretorioBancos, "posicao-leitura.db")}";
 builder.Services.AddDbContext<ReadingPositionDbContext>(options => options.UseSqlite(readingPositionConnectionString));
 builder.Services.AddScoped<ReadingPositionService>();
 
 var highlightConnectionString = builder.Configuration.GetConnectionString("Highlights")
-    ?? $"Data Source={Path.Combine(builder.Environment.ContentRootPath, "highlights.db")}";
+    ?? $"Data Source={Path.Combine(diretorioBancos, "highlights.db")}";
 builder.Services.AddDbContext<HighlightDbContext>(options => options.UseSqlite(highlightConnectionString));
 builder.Services.AddScoped<HighlightService>();
 
