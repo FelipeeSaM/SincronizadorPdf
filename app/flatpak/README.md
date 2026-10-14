@@ -8,12 +8,12 @@ Manifesto e pipeline que produzem um pacote Flatpak instalável do app desktop, 
 ./build.sh
 ```
 
-Isso roda `flutter build linux --release` dentro do toolbox `sincronizador-pdf-build` (necessário em sistemas imutáveis como Bazzite, que não tem `cmake`/`gtk3-devel` no host) e em seguida `flatpak run org.flatpak.Builder -- --user --install --force-clean` no host, usando `com.felipesam.sincronizador_pdf.yml`. Ao final, o pacote fica instalado para o usuário atual (`flatpak run com.felipesam.sincronizador_pdf`).
+Isso roda, em sequência: (1) `flutter build linux --release` dentro do toolbox `sincronizador-pdf-build` (necessário em sistemas imutáveis como Bazzite, que não tem `cmake`/`gtk3-devel` no host); (2) `dotnet publish` do Backend como executável **self-contained** para `linux-x64`, direto no host, dentro de `bundle/backend/` (ver ADR-0007, #31) — não precisa de `dotnet` instalado na máquina de quem só for *usar* o pacote; (3) `flatpak run org.flatpak.Builder -- --user --install --force-clean` no host, usando `com.felipesam.sincronizador_pdf.yml`, que copia o bundle inteiro (app + `backend/`) para `/app/bin/`. Ao final, o pacote fica instalado para o usuário atual (`flatpak run com.felipesam.sincronizador_pdf`) e já sobe o Backend local sozinho, sem configuração manual.
 
 Dependências de build:
 
 - No toolbox `sincronizador-pdf-build`: `cmake`, `ninja`, `gtk3-devel`, um compilador C/C++.
-- No host: runtime/SDK Flatpak `org.gnome.Platform`/`org.gnome.Sdk` (branch `49`) + `org.flatpak.Builder`, instaláveis via:
+- No host: [.NET SDK 10](https://dotnet.microsoft.com/download) (para o `dotnet publish` do Backend) e runtime/SDK Flatpak `org.gnome.Platform`/`org.gnome.Sdk` (branch `49`) + `org.flatpak.Builder`, instaláveis via:
 
 ```sh
 flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//49
@@ -22,6 +22,7 @@ flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//49
 ## Validado até agora
 
 - [x] Build + instalação local no Bazzite (host de desenvolvimento) — pacote instala, abre e renderiza a janela normalmente (confirmado visualmente via `flatpak run com.felipesam.sincronizador_pdf`), sem crash.
+- [x] Backend empacotado inicia sozinho de dentro do sandbox (ver #31) — confirmado que `flatpak run com.felipesam.sincronizador_pdf` sobe o executável self-contained em `backend/` e cria os bancos SQLite em `~/.var/app/com.felipesam.sincronizador_pdf/data/sincronizador_pdf/backend/` (remapeamento padrão do Flatpak para `XDG_DATA_HOME`), sem erro de permissão.
 - [ ] Segunda distro (ex: CachyOS) — ver checklist abaixo.
 
 ## Checklist: validar numa segunda distro (ex: CachyOS)
